@@ -1,0 +1,28 @@
+import { CaptionProps } from "react-day-picker"
+
+function YearOnlyCaption({ displayMonth, onMonthChange }: CaptionProps) {
+  const currentYear = new Date().getFullYear()
+  const years = Array.from({ length: currentYear - 1899 }, (_, i) => 1900 + i)
+
+  const handleYearChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const newDate = new Date(displayMonth)
+    newDate.setFullYear(Number(e.target.value))
+    onMonthChange(newDate)
+  }
+
+  return (
+    <div className="flex justify-center p-2">
+      <select
+        value={displayMonth.getFullYear()}
+        onChange={handleYearChange}
+        className="border rounded-md px-2 py-1 text-sm"
+      >
+        {years.map((year) => (
+          <option key={year} value={year}>
+            {year}
+          </option>
+        ))}
+      </select>
+    </div>
+  )
+}

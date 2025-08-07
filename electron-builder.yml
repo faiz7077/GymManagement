@@ -1,0 +1,22 @@
+appId: com.gymmanagement.app
+productName: Gym Management System
+directories:
+  output: dist-electron
+files:
+  - dist/**/*
+  - electron/**/*
+  - package.json
+mac:
+  category: public.app-category.business
+  target:
+    - dmg
+    - zip
+win:
+  target:
+    - nsis
+    - portable
+linux:
+  target:
+    - AppImage
+    - deb
+  category: Office
