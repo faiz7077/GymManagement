@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
+import { SidebarTrigger, useSidebar } from '@/components/ui/sidebar';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { db } from '@/utils/database';
@@ -23,7 +24,8 @@ interface Expense {
   receipt?: string;
 }
 
-const expenseCategories = {
+// Default expense categories (fallback)
+const defaultExpenseCategories = {
   salaries: { label: 'Staff Salaries', color: 'bg-blue-100 text-blue-800', icon: '👥' },
   maintenance: { label: 'Maintenance', color: 'bg-orange-100 text-orange-800', icon: '🔧' },
   food: { label: 'Food & Beverages', color: 'bg-green-100 text-green-800', icon: '🍽️' },
@@ -41,6 +43,9 @@ export const Expenses: React.FC = () => {
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [expenseToDelete, setExpenseToDelete] = useState<Expense | null>(null);
   const [loading, setLoading] = useState(true);
+  const [expenseCategories, setExpenseCategories] = useState<any>(defaultExpenseCategories);
+  const [masterCategories, setMasterCategories] = useState<any[]>([]);
+  const { state: sidebarState } = useSidebar();
   const [stats, setStats] = useState({
     total: 0,
     thisMonth: 0,
@@ -51,6 +56,54 @@ export const Expenses: React.FC = () => {
   });
   const { toast } = useToast();
   const { user } = useAuth();
+
+  // Load expense categories from master settings
+  const loadExpenseCategories = async () => {
+    try {
+      const result = await db.masterExpenseCategoriesGetAll();
+      if (result.success && result.data) {
+        const activeCategories = result.data.filter(category => category.is_active);
+        setMasterCategories(activeCategories);
+        
+        // Build dynamic expense categories object
+        const dynamicCategories: any = {};
+        const colors = [
+          'bg-blue-100 text-blue-800',
+          'bg-orange-100 text-orange-800', 
+          'bg-green-100 text-green-800',
+          'bg-purple-100 text-purple-800',
+          'bg-pink-100 text-pink-800',
+          'bg-indigo-100 text-indigo-800',
+          'bg-gray-100 text-gray-800'
+        ];
+        const icons = ['💼', '🔧', '🍽️', '📋', '💡', '🎯', '📊'];
+        
+        activeCategories.forEach((category, index) => {
+          const key = category.name.toLowerCase().replace(/\s+/g, '_');
+          dynamicCategories[key] = {
+            label: category.name,
+            color: colors[index % colors.length],
+            icon: icons[index % icons.length]
+          };
+        });
+        
+        // Merge with default categories if master categories exist
+        if (Object.keys(dynamicCategories).length > 0) {
+          setExpenseCategories(dynamicCategories);
+        } else {
+          setExpenseCategories(defaultExpenseCategories);
+        }
+      } else {
+        console.error('Failed to load expense categories:', result.error);
+        // Keep default categories as fallback
+        setExpenseCategories(defaultExpenseCategories);
+      }
+    } catch (error) {
+      console.error('Error loading expense categories:', error);
+      // Keep default categories as fallback
+      setExpenseCategories(defaultExpenseCategories);
+    }
+  };
 
   // Form state
   const [formData, setFormData] = useState({
@@ -103,7 +156,7 @@ export const Expenses: React.FC = () => {
       filtered = filtered.filter(expense =>
         expense.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
         expense.category.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        expense.createdBy.toLowerCase().includes(searchTerm.toLowerCase())
+        expense.created_by.toLowerCase().includes(searchTerm.toLowerCase())
       );
     }
 
@@ -119,6 +172,7 @@ export const Expenses: React.FC = () => {
 
   useEffect(() => {
     loadExpenses();
+    loadExpenseCategories();
   }, [loadExpenses]);
 
   useEffect(() => {
@@ -266,9 +320,12 @@ export const Expenses: React.FC = () => {
   return (
     <div className="animate-fade-in">
       <div className="sticky top-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b px-6 py-4 flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold bg-gradient-to-r from-gym-primary to-primary-glow bg-clip-text text-transparent">Expenses</h1>
-          <p className="text-muted-foreground">Track and manage gym expenses across different categories</p>
+        <div className="flex items-center gap-3">
+          {sidebarState === 'collapsed' && <SidebarTrigger />}
+          <div>
+            <h1 className="text-3xl font-bold bg-gradient-to-r from-gym-primary to-primary-glow bg-clip-text text-transparent">Expenses</h1>
+            <p className="text-muted-foreground">Track and manage gym expenses across different categories</p>
+          </div>
         </div>
         <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
           <DialogTrigger asChild>
@@ -499,8 +556,8 @@ export const Expenses: React.FC = () => {
                         <div className="flex items-start space-x-4 flex-1">
                           <div className="flex-1">
                             <div className="flex items-center space-x-2 mb-2">
-                              <Badge className={expenseCategories[expense.category].color}>
-                                {expenseCategories[expense.category].icon} {expenseCategories[expense.category].label}
+                              <Badge className={expenseCategories[expense.category]?.color || 'bg-gray-100 text-gray-800'}>
+                                {expenseCategories[expense.category]?.icon || '📋'} {expenseCategories[expense.category]?.label || expense.category}
                               </Badge>
                               <span className="text-lg font-semibold text-green-600">
                                 {formatCurrency(expense.amount)}

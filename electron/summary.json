@@ -1,0 +1,17 @@
+{
+  "num_lines": 7550,
+  "size_bytes": 259246,
+  "patterns": {
+    "ipcMain": 0,
+    "ipcRenderer": 0,
+    "better-sqlite3": 1,
+    "require\\(": 5,
+    "module.exports": 1,
+    "class ": 1,
+    "function ": 3,
+    "db.prepare": 277,
+    "INSERT INTO": 41,
+    "CREATE TABLE": 25,
+    "exports.": 0
+  }
+}

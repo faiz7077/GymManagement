@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -10,17 +10,19 @@ import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Textarea } from '@/components/ui/textarea';
-import { CalendarIcon, Upload, X, User } from 'lucide-react';
+import { CalendarIcon, Upload, X, User, Badge } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { LegacyMember, LegacyEnquiry, db } from '@/utils/database';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { compressImage, validateImageFile } from '@/utils/imageUtils';
 import { useToast } from '@/hooks/use-toast';
+import { useTaxSelection } from '@/hooks/useTaxSelection';
 import { calculateSubscriptionEndDate, getPlanDurationInMonths, formatDateForDatabase } from '@/utils/dateUtils';
+import { partialMemberSchema, validatePartialMember, PartialMemberData } from '@/schemas/partialMemberSchema';
 
 const memberSchema = z.object({
-  customMemberId: z.string().nullable().optional().transform(val => val || undefined),
+  customMemberId: z.string().min(1, 'Member ID is required').regex(/^\d+$/, 'Member ID must contain only numbers'),
   name: z.string().min(2, 'Name must be at least 2 characters'),
   address: z.string().min(5, 'Address must be at least 5 characters'),
   telephoneNo: z.string().nullable().optional().transform(val => val || undefined),
@@ -71,7 +73,16 @@ type MemberFormData = z.infer<typeof memberSchema>;
 interface MemberFormProps {
   initialData?: LegacyMember;
   enquiryData?: LegacyEnquiry;
-  onSubmit: (data: Omit<LegacyMember, 'id' | 'createdAt' | 'updatedAt'>) => void;
+  onSubmit: (data: Omit<LegacyMember, 'id' | 'createdAt' | 'updatedAt'> & {
+    tax?: {
+      id: string;
+      name: string;
+      rate: number;
+      type: string;
+      amount: number;
+    };
+  }) => void;
+  onPartialSave?: (data: PartialMemberData) => void;
 }
 
 const serviceOptions = [
@@ -84,17 +95,26 @@ const serviceOptions = [
 
 const bloodGroups = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
 
-export const MemberForm: React.FC<MemberFormProps> = ({ initialData, enquiryData, onSubmit }) => {
+export const MemberForm: React.FC<MemberFormProps> = ({ initialData, enquiryData, onSubmit, onPartialSave }) => {
   const [memberImage, setMemberImage] = useState<string | null>(initialData?.memberImage || null);
   const [idProofImage, setIdProofImage] = useState<string | null>(initialData?.idProofImage || null);
   const [isUploadingMemberImage, setIsUploadingMemberImage] = useState(false);
   const [isUploadingIdProof, setIsUploadingIdProof] = useState(false);
   const [selectedServices, setSelectedServices] = useState<string[]>(initialData?.services || []);
+  const [isGeneratingMemberId, setIsGeneratingMemberId] = useState(false);
+  const [memberIdError, setMemberIdError] = useState<string | null>(null);
   const [realTimeAmounts, setRealTimeAmounts] = useState<{
     totalPaid: number;
     totalDue: number;
     receiptCount: number;
   }>({ totalPaid: 0, totalDue: 0, receiptCount: 0 });
+  const [occupations, setOccupations] = useState<unknown[]>([]);
+  const [taxSettings, setTaxSettings] = useState<unknown[]>([]);
+  const [packages, setPackages] = useState<unknown[]>([]);
+  const [paymentTypes, setPaymentTypes] = useState<unknown[]>([]);
+  const [masterDataLoaded, setMasterDataLoaded] = useState(false);
+  const [isSavingPartial, setIsSavingPartial] = useState(false);
+  const [isPartialMember, setIsPartialMember] = useState(initialData?.status === 'partial');
   const memberImageInputRef = useRef<HTMLInputElement>(null);
   const idProofInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
@@ -213,24 +233,45 @@ export const MemberForm: React.FC<MemberFormProps> = ({ initialData, enquiryData
   const discount = watch('discount');
   const paidAmount = watch('paidAmount');
 
+  // Enhanced tax selection hook
+  const baseAmount = (registrationFee || 0) + (packageFee || 0) - (discount || 0);
+  const {
+    selectedTaxes,
+    taxType,
+    filteredTaxes,
+    calculationResult,
+    toggleTax,
+    clearAllTaxes,
+    setTaxSelection,
+    isTaxSelectable,
+    getTaxTypeLabel
+  } = useTaxSelection({
+    taxes: taxSettings,
+    baseAmount,
+    onTaxChange: (result) => {
+      // Update form amount when tax calculation changes
+      setValue('membershipFees', result.totalAmount);
+    }
+  });
+
   // Load real-time amounts from receipts
-  const loadRealTimeAmounts = async () => {
+  const loadRealTimeAmounts = useCallback(async () => {
     if (initialData?.id) {
       try {
         // Get member's due amount using the same method as the database
         const memberDueData = await db.getMemberDueAmount(initialData.id);
-        
+
         // Get member's receipts to calculate real-time amounts
         const receipts = await db.getReceiptsByMemberId(initialData.id);
-        
+
         let totalPaidFromReceipts = 0;
         let totalDueFromReceipts = 0;
-        
+
         receipts.forEach(receipt => {
           totalPaidFromReceipts += receipt.amount_paid || receipt.amount || 0;
           totalDueFromReceipts += receipt.due_amount || 0;
         });
-        
+
         // Use the database-calculated due amount for consistency
         setRealTimeAmounts({
           totalPaid: totalPaidFromReceipts,
@@ -241,7 +282,7 @@ export const MemberForm: React.FC<MemberFormProps> = ({ initialData, enquiryData
         console.error('Error loading real-time amounts:', error);
       }
     }
-  };
+  }, [initialData?.id]);
 
   // Sync state with form values on initialization
   useEffect(() => {
@@ -259,10 +300,103 @@ export const MemberForm: React.FC<MemberFormProps> = ({ initialData, enquiryData
     }
   }, [initialData, setValue]);
 
+  // Load occupations from master settings
+  const loadOccupations = async () => {
+    try {
+      console.log('Loading occupations...');
+      const result = await db.masterOccupationsGetAll();
+      console.log('Occupations result:', result);
+      if (result.success && result.data) {
+        const activeOccupations = result.data.filter(occupation => occupation.is_active !== false);
+        console.log('Active occupations:', activeOccupations);
+        setOccupations(activeOccupations);
+      } else {
+        console.error('Failed to load occupations:', result.error);
+        setOccupations([]); // Set empty array on failure
+      }
+    } catch (error) {
+      console.error('Error loading occupations:', error);
+      setOccupations([]); // Set empty array on error
+    }
+  };
+
+  // Load packages from master settings
+  const loadPackages = async () => {
+    try {
+      console.log('Loading packages...');
+      const result = await db.masterPackagesGetAll();
+      console.log('Packages result:', result);
+      if (result.success && result.data) {
+        const activePackages = result.data.filter(pkg => pkg.is_active !== false);
+        console.log('Active packages:', activePackages);
+        setPackages(activePackages);
+      } else {
+        console.error('Failed to load packages:', result.error);
+        setPackages([]); // Set empty array on failure
+      }
+    } catch (error) {
+      console.error('Error loading packages:', error);
+      setPackages([]); // Set empty array on error
+    }
+  };
+
+  // Load tax settings from master settings
+  const loadTaxSettings = async () => {
+    try {
+      console.log('Loading tax settings...');
+      const result = await db.masterTaxSettingsGetAll();
+      console.log('Tax settings result:', result);
+      if (result.success && result.data) {
+        const activeTaxes = result.data.filter(tax => tax.is_active !== false);
+        console.log('Active tax settings:', activeTaxes);
+        setTaxSettings(activeTaxes);
+      } else {
+        console.error('Failed to load tax settings:', result.error);
+        setTaxSettings([]); // Set empty array on failure
+      }
+    } catch (error) {
+      console.error('Error loading tax settings:', error);
+      setTaxSettings([]); // Set empty array on error
+    }
+  };
+
+  // Load payment types from master settings
+  const loadPaymentTypes = async () => {
+    try {
+      console.log('Loading payment types...');
+      const result = await db.masterPaymentTypesGetAll();
+      console.log('Payment types result:', result);
+      if (result.success && result.data) {
+        const activePaymentTypes = result.data.filter(paymentType => paymentType.is_active !== false);
+        console.log('Active payment types:', activePaymentTypes);
+        setPaymentTypes(activePaymentTypes);
+      } else {
+        console.error('Failed to load payment types:', result.error);
+        setPaymentTypes([]); // Set empty array on failure
+      }
+    } catch (error) {
+      console.error('Error loading payment types:', error);
+      setPaymentTypes([]); // Set empty array on error
+    }
+  };
+
   // Load real-time amounts when component mounts or initialData changes
   useEffect(() => {
-    loadRealTimeAmounts();
-  }, [initialData?.id]);
+    const loadAllMasterData = async () => {
+      setMasterDataLoaded(false);
+      await Promise.all([
+        loadRealTimeAmounts(),
+        loadOccupations(),
+        loadPackages(),
+        loadPaymentTypes(),
+        loadTaxSettings()
+      ]);
+      setMasterDataLoaded(true);
+      console.log('All master data loaded');
+    };
+
+    loadAllMasterData();
+  }, [initialData?.id, loadRealTimeAmounts]);
 
   // Auto-calculate subscription end date when start date or plan type changes
   useEffect(() => {
@@ -276,13 +410,51 @@ export const MemberForm: React.FC<MemberFormProps> = ({ initialData, enquiryData
     }
   }, [subscriptionStartDate, planType, setValue]);
 
-  // Auto-calculate total fees from fee structure
+  // Auto-populate package fee when plan type changes (if packages are available)
   useEffect(() => {
-    if (registrationFee !== undefined || packageFee !== undefined || discount !== undefined) {
-      const totalFees = (registrationFee || 0) + (packageFee || 0) - (discount || 0);
-      setValue('membershipFees', Math.max(0, totalFees));
+    if (planType && packages.length > 0) {
+      console.log('Plan type changed:', planType, 'Available packages:', packages);
+
+      // Find the selected package in master packages
+      const selectedPackage = packages.find(pkg =>
+        pkg.name?.toLowerCase() === planType.toLowerCase() ||
+        pkg.duration_type?.toLowerCase() === planType.toLowerCase() ||
+        pkg.id?.toString() === planType
+      );
+
+      console.log('Found selected package:', selectedPackage);
+
+      if (selectedPackage) {
+        // Map package fee from master settings
+        if (selectedPackage.price && selectedPackage.price > 0) {
+          setValue('packageFee', selectedPackage.price);
+          console.log('Package fee mapped from master settings:', selectedPackage.price);
+        }
+
+        // Map registration fee if available
+        if (selectedPackage.registration_fee && selectedPackage.registration_fee > 0) {
+          setValue('registrationFee', selectedPackage.registration_fee);
+          console.log('Registration fee mapped from master settings:', selectedPackage.registration_fee);
+        }
+
+        // Map discount if available
+        if (selectedPackage.discount && selectedPackage.discount > 0) {
+          setValue('discount', selectedPackage.discount);
+          console.log('Discount mapped from master settings:', selectedPackage.discount);
+        }
+
+        // Show success message
+        toast({
+          title: "Plan Mapped",
+          description: `Package fees have been automatically mapped from ${selectedPackage.name || planType} plan settings.`,
+        });
+      } else {
+        console.log('No matching package found in master settings for:', planType);
+      }
     }
-  }, [registrationFee, packageFee, discount, setValue]);
+  }, [planType, packages, setValue, toast]);
+
+
 
   const handleMemberImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -385,13 +557,263 @@ export const MemberForm: React.FC<MemberFormProps> = ({ initialData, enquiryData
     return name.split(' ').map(n => n[0]).join('').toUpperCase();
   };
 
+  // Generate automatic member ID
+  const generateMemberId = useCallback(async () => {
+    try {
+      setIsGeneratingMemberId(true);
+      setMemberIdError(null);
+      const newMemberId = await db.generateMemberNumber();
+      setValue('customMemberId', newMemberId);
+      toast({
+        title: "Member ID Generated",
+        description: `New member ID: ${newMemberId}`,
+      });
+    } catch (error) {
+      console.error('Error generating member ID:', error);
+      setMemberIdError('Failed to generate member ID');
+      toast({
+        title: "Error",
+        description: "Failed to generate member ID",
+        variant: "destructive",
+      });
+    } finally {
+      setIsGeneratingMemberId(false);
+    }
+  });
+
+  // Validate member ID availability
+  const validateMemberId = async (memberId: string) => {
+    if (!memberId || memberId.trim() === '') {
+      setMemberIdError(null);
+      return;
+    }
+
+    try {
+      const result = await db.checkMemberNumberAvailable(memberId, initialData?.id);
+      if (!result.available) {
+        setMemberIdError('This member ID is already taken');
+      } else {
+        setMemberIdError(null);
+      }
+    } catch (error) {
+      console.error('Error validating member ID:', error);
+      setMemberIdError('Error validating member ID');
+    }
+  };
+
+  // Watch for member ID changes to validate
+  const customMemberId = watch('customMemberId');
+  useEffect(() => {
+    if (customMemberId) {
+      const timeoutId = setTimeout(() => {
+        validateMemberId(customMemberId);
+      }, 500); // Debounce validation
+      return () => clearTimeout(timeoutId);
+    } else {
+      setMemberIdError(null);
+    }
+  }, [customMemberId, initialData?.id, validateMemberId]);
+
+  // Auto-generate member ID for new members if not provided
+  useEffect(() => {
+    if (!initialData && !customMemberId) {
+      generateMemberId();
+    }
+  }, [customMemberId, generateMemberId, initialData]);
+
+  // Handle partial member save (basic information only)
+  const handlePartialSave = async () => {
+    console.log('🔄 MemberForm: handlePartialSave called');
+    console.log('🔄 MemberForm: onPartialSave callback exists:', !!onPartialSave);
+
+    if (!onPartialSave) {
+      console.log('❌ MemberForm: No onPartialSave callback provided');
+      toast({
+        title: "Configuration Error",
+        description: "Partial save functionality is not available. Please contact support.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Check if there are any member ID validation errors
+    if (memberIdError) {
+      console.log('❌ MemberForm: Member ID error exists:', memberIdError);
+      toast({
+        title: "Validation Error",
+        description: `Please fix the member ID error: ${memberIdError}`,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      setIsSavingPartial(true);
+
+      // Get current form data for basic fields only
+      const formData = watch();
+      console.log('🔄 MemberForm: Form data:', formData);
+
+      // Ensure member ID is generated if not present
+      if (!formData.customMemberId) {
+        console.log('🔄 MemberForm: No member ID found, generating one...');
+        try {
+          const newMemberId = await db.generateMemberNumber();
+          setValue('customMemberId', newMemberId);
+          formData.customMemberId = newMemberId;
+          console.log('🔄 MemberForm: Generated member ID:', newMemberId);
+        } catch (error) {
+          console.error('❌ MemberForm: Failed to generate member ID:', error);
+          toast({
+            title: "Error",
+            description: "Failed to generate member ID. Please try again.",
+            variant: "destructive",
+          });
+          return;
+        }
+      }
+
+      // Validate partial member data
+      const validationData = {
+        customMemberId: formData.customMemberId,
+        name: formData.name,
+        address: formData.address,
+        telephoneNo: formData.telephoneNo,
+        mobileNo: formData.mobileNo,
+        occupation: formData.occupation,
+        maritalStatus: formData.maritalStatus,
+        anniversaryDate: formData.anniversaryDate,
+        bloodGroup: formData.bloodGroup,
+        sex: formData.sex,
+        dateOfBirth: formData.dateOfBirth,
+        alternateNo: formData.alternateNo,
+        email: formData.email,
+        memberImage: memberImage,
+        idProofImage: idProofImage,
+        dateOfRegistration: formData.dateOfRegistration,
+        medicalIssues: formData.medicalIssues,
+        goals: formData.goals,
+        status: 'partial'
+      };
+
+      console.log('🔄 MemberForm: Raw form data for validation:', {
+        customMemberId: formData.customMemberId,
+        name: formData.name,
+        address: formData.address,
+        mobileNo: formData.mobileNo,
+        email: formData.email,
+        occupation: formData.occupation,
+        sex: formData.sex,
+        dateOfBirth: formData.dateOfBirth,
+        dateOfRegistration: formData.dateOfRegistration
+      });
+
+      console.log('🔄 MemberForm: Validation data:', validationData);
+      const validation = validatePartialMember(validationData);
+      console.log('🔄 MemberForm: Validation result:', validation);
+
+      if (!validation.isValid) {
+        // Show validation errors
+        const errorMessages = validation.errors?.map(err => `${err.path?.join('.')}: ${err.message}`).join(', ') || 'Validation failed';
+        console.log('❌ MemberForm: Validation failed:', errorMessages);
+        console.log('❌ MemberForm: Validation errors:', validation.errors);
+        toast({
+          title: "Validation Error",
+          description: errorMessages,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Prepare partial member data
+      const partialData: PartialMemberData = {
+        customMemberId: validation.data?.customMemberId,
+        name: validation.data!.name,
+        address: validation.data!.address,
+        telephoneNo: validation.data?.telephoneNo,
+        mobileNo: validation.data!.mobileNo,
+        occupation: validation.data!.occupation,
+        maritalStatus: validation.data!.maritalStatus,
+        anniversaryDate: validation.data?.anniversaryDate ? formatDateForDatabase(validation.data.anniversaryDate) : undefined,
+        bloodGroup: validation.data?.bloodGroup,
+        sex: validation.data!.sex,
+        dateOfBirth: formatDateForDatabase(validation.data!.dateOfBirth),
+        alternateNo: validation.data?.alternateNo,
+        email: validation.data!.email,
+        memberImage: validation.data?.memberImage,
+        idProofImage: validation.data?.idProofImage,
+        dateOfRegistration: formatDateForDatabase(validation.data!.dateOfRegistration),
+        medicalIssues: validation.data?.medicalIssues,
+        goals: validation.data?.goals,
+        status: 'partial'
+      };
+
+      console.log('🔄 MemberForm: Final partial data being sent to database:', partialData);
+      console.log('🔄 MemberForm: Required fields check:', {
+        name: !!partialData.name,
+        mobileNo: !!partialData.mobileNo,
+        email: !!partialData.email,
+        occupation: !!partialData.occupation,
+        sex: !!partialData.sex,
+        dateOfBirth: !!partialData.dateOfBirth,
+        address: !!partialData.address
+      });
+
+      // Call the partial save handler
+      console.log('🔄 MemberForm: Calling onPartialSave with data:', partialData);
+      await onPartialSave(partialData);
+      console.log('🔄 MemberForm: onPartialSave completed');
+
+      toast({
+        title: "Member Details Saved",
+        description: "Basic member information has been saved successfully. You can complete the membership details later.",
+      });
+
+      // Update component state to reflect partial member status
+      setIsPartialMember(true);
+
+    } catch (error) {
+      console.error('Partial save error:', error);
+      toast({
+        title: "Save Failed",
+        description: "Failed to save member details. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSavingPartial(false);
+    }
+  };
+
   const onFormSubmit = (data: MemberFormData) => {
     console.log('Form data being submitted:', data);
+
+    // Check for member ID errors before submission
+    if (memberIdError) {
+      toast({
+        title: "Validation Error",
+        description: "Please fix the member ID error before submitting",
+        variant: "destructive",
+      });
+      return;
+    }
 
     // Calculate due amount for consistency
     const totalAmount = data.membershipFees || 0;
     const paidAmount = data.paidAmount || 0;
     const dueAmount = Math.max(0, totalAmount - paidAmount);
+
+    // Get enhanced tax information
+    let selectedTaxInfo = null;
+    if (calculationResult.taxBreakdown.length > 0) {
+      const primaryTax = calculationResult.taxBreakdown[0];
+      selectedTaxInfo = {
+        id: primaryTax.id,
+        name: primaryTax.name,
+        rate: primaryTax.rate,
+        type: primaryTax.type,
+        amount: primaryTax.amount
+      };
+    }
 
     console.log('Member form amounts:', {
       totalAmount,
@@ -400,7 +822,8 @@ export const MemberForm: React.FC<MemberFormProps> = ({ initialData, enquiryData
       membershipFees: data.membershipFees,
       registrationFee: data.registrationFee,
       packageFee: data.packageFee,
-      discount: data.discount
+      discount: data.discount,
+      selectedTax: selectedTaxInfo
     });
 
     onSubmit({
@@ -430,6 +853,7 @@ export const MemberForm: React.FC<MemberFormProps> = ({ initialData, enquiryData
       discount: data.discount,
       paidAmount: data.paidAmount,
       paid_amount: data.paidAmount, // Add snake_case version for database compatibility
+
       // Add due amount for consistency
       dueAmount: dueAmount,
       due_amount: dueAmount, // Also add snake_case version for database compatibility
@@ -438,6 +862,21 @@ export const MemberForm: React.FC<MemberFormProps> = ({ initialData, enquiryData
       medicalIssues: data.medicalIssues || '',
       goals: data.goals,
       status: data.status,
+      height: undefined,
+      amount_paid: undefined,
+      notes: undefined,
+      phone: undefined,
+      profileImage: undefined,
+      weight: undefined,
+
+      // Add tax information
+      tax: selectedTaxInfo ? {
+        id: selectedTaxInfo.id,
+        name: selectedTaxInfo.name,
+        rate: selectedTaxInfo.rate,
+        type: selectedTaxInfo.type,
+        amount: selectedTaxInfo.amount
+      } : undefined
     });
   };
 
@@ -555,14 +994,36 @@ export const MemberForm: React.FC<MemberFormProps> = ({ initialData, enquiryData
         <h3 className="text-lg font-semibold">Basic Information</h3>
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-2">
-            <Label htmlFor="customMemberId">Custom Member ID</Label>
-            <Input
-              id="customMemberId"
-              {...register('customMemberId')}
-              placeholder="Enter custom member ID (optional)"
-            />
+            <Label htmlFor="customMemberId">Member ID</Label>
+            <div className="flex gap-2">
+              <Input
+                id="customMemberId"
+                {...register('customMemberId')}
+                placeholder={initialData ? "Enter member ID" : "Auto-generated or enter custom ID"}
+                className={memberIdError ? "border-destructive" : ""}
+              />
+              {!initialData && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={generateMemberId}
+                  disabled={isGeneratingMemberId}
+                  className="whitespace-nowrap"
+                >
+                  {isGeneratingMemberId ? "Generating..." : "Auto Generate"}
+                </Button>
+              )}
+            </div>
+            {memberIdError && (
+              <p className="text-sm text-destructive">{memberIdError}</p>
+            )}
             {errors.customMemberId && (
               <p className="text-sm text-destructive">{errors.customMemberId.message}</p>
+            )}
+            {!initialData && (
+              <p className="text-xs text-muted-foreground">
+                Member ID will be auto-generated if left empty. Must be unique.
+              </p>
             )}
           </div>
 
@@ -648,13 +1109,65 @@ export const MemberForm: React.FC<MemberFormProps> = ({ initialData, enquiryData
 
           <div className="space-y-2">
             <Label htmlFor="occupation">Occupation *</Label>
-            <Input
-              id="occupation"
-              {...register('occupation')}
-              placeholder="Enter occupation"
-            />
+            <Select
+              onValueChange={(value) => setValue('occupation', value)}
+              value={watch('occupation') || undefined}
+              disabled={!masterDataLoaded}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder={!masterDataLoaded ? "Loading occupations..." : "Select occupation"} />
+              </SelectTrigger>
+              <SelectContent>
+                {!masterDataLoaded ? (
+                  <SelectItem key="occupation-loading" value="loading" disabled>Loading occupations...</SelectItem>
+                ) : occupations.length > 0 ? (
+                  occupations
+                    .filter(occupation => occupation && (occupation.id || occupation.name)) // Better filtering
+                    .map((occupation, index) => {
+                      // Generate a guaranteed unique key using index as fallback
+                      const uniqueKey = occupation.id || occupation.name || `occupation-${index}`;
+                      const uniqueValue = occupation.name || `occupation-${index}`;
+
+                      return (
+                        <SelectItem key={uniqueKey} value={uniqueValue}>
+                          <div className="flex flex-col">
+                            <span className="font-medium">{occupation.name || `Occupation ${index + 1}`}</span>
+                            {occupation.description && (
+                              <span className="text-xs text-muted-foreground">{occupation.description}</span>
+                            )}
+                          </div>
+                        </SelectItem>
+                      );
+                    })
+                ) : (
+                  // Fallback options if no master settings available
+                  <>
+                    <SelectItem value="student">Student</SelectItem>
+                    <SelectItem value="employee">Employee</SelectItem>
+                    <SelectItem value="business">Business</SelectItem>
+                    <SelectItem value="professional">Professional</SelectItem>
+                    <SelectItem value="retired">Retired</SelectItem>
+                    <SelectItem value="other">Other</SelectItem>
+                  </>
+                )}
+              </SelectContent>
+            </Select>
             {errors.occupation && (
               <p className="text-sm text-destructive">{errors.occupation.message}</p>
+            )}
+
+            {/* Show master occupations info */}
+            {occupations.length > 0 && (
+              <div className="text-xs text-purple-600 bg-purple-50 p-2 rounded border border-purple-200">
+                💡 Occupations loaded from Master Settings ({occupations.length} available).
+              </div>
+            )}
+
+            {/* Show fallback info */}
+            {occupations.length === 0 && (
+              <div className="text-xs text-amber-600 bg-amber-50 p-2 rounded border border-amber-200">
+                ⚠️ Using default occupations. Configure occupations in Master Settings for more options.
+              </div>
             )}
           </div>
         </div>
@@ -666,7 +1179,10 @@ export const MemberForm: React.FC<MemberFormProps> = ({ initialData, enquiryData
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-2">
             <Label>Sex *</Label>
-            <Select onValueChange={(value) => setValue('sex', value as 'male' | 'female')}>
+            <Select
+              onValueChange={(value) => setValue('sex', value as 'male' | 'female')}
+              value={watch('sex') || undefined}
+            >
               <SelectTrigger>
                 <SelectValue placeholder="Select sex" />
               </SelectTrigger>
@@ -715,7 +1231,10 @@ export const MemberForm: React.FC<MemberFormProps> = ({ initialData, enquiryData
 
           <div className="space-y-2">
             <Label>Marital Status *</Label>
-            <Select onValueChange={(value) => setValue('maritalStatus', value as 'married' | 'unmarried')}>
+            <Select
+              onValueChange={(value) => setValue('maritalStatus', value as 'married' | 'unmarried')}
+              value={watch('maritalStatus') || undefined}
+            >
               <SelectTrigger>
                 <SelectValue placeholder="Select marital status" />
               </SelectTrigger>
@@ -760,12 +1279,15 @@ export const MemberForm: React.FC<MemberFormProps> = ({ initialData, enquiryData
 
           <div className="space-y-2">
             <Label htmlFor="bloodGroup">Blood Group</Label>
-            <Select onValueChange={(value) => setValue('bloodGroup', value)}>
+            <Select
+              onValueChange={(value) => setValue('bloodGroup', value)}
+              value={watch('bloodGroup') || undefined}
+            >
               <SelectTrigger>
                 <SelectValue placeholder="Select blood group (optional)" />
               </SelectTrigger>
               <SelectContent>
-                {bloodGroups.map((group) => (
+                {bloodGroups.filter(group => group).map((group) => (
                   <SelectItem key={group} value={group}>{group}</SelectItem>
                 ))}
               </SelectContent>
@@ -774,9 +1296,81 @@ export const MemberForm: React.FC<MemberFormProps> = ({ initialData, enquiryData
         </div>
       </div>
 
+      {/* Save Member Details Button */}
+      {!initialData && onPartialSave && (
+        <div className="flex justify-center py-4 border-t border-b bg-muted/30">
+          <div className="text-center space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Save basic member information now and complete membership details later
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handlePartialSave}
+              disabled={isSavingPartial}
+              className="flex items-center gap-2"
+            >
+              {isSavingPartial ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary"></div>
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <User className="h-4 w-4" />
+                  Save Member Details
+                </>
+              )}
+            </Button>
+            <p className="text-xs text-muted-foreground max-w-md">
+              This will save the member's personal information. You can return later to add membership plans and payment details.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Partial Member Status Indicator */}
+      {isPartialMember && (
+        <div className="bg-amber-50 border border-amber-200 p-4 rounded-lg">
+          <div className="flex items-center gap-2">
+            <Badge variant="secondary" className="bg-amber-100 text-amber-800 border-amber-300">
+              Partial Member
+            </Badge>
+            <span className="text-sm text-amber-700">
+              This member's basic information is saved. Complete the membership details below to activate their membership.
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* Membership Details */}
       <div className="space-y-4">
-        <h3 className="text-lg font-semibold">Membership Details</h3>
+        <div className="flex items-center justify-between">
+          <h3 className="text-lg font-semibold">Membership Details</h3>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={async () => {
+              setMasterDataLoaded(false);
+              await Promise.all([
+                loadOccupations(),
+                loadPackages(),
+                loadPaymentTypes(),
+                loadTaxSettings()
+              ]);
+              setMasterDataLoaded(true);
+              toast({
+                title: "Master Settings Refreshed",
+                description: "Reloaded all master settings data.",
+              });
+            }}
+            className="flex items-center gap-2"
+            disabled={!masterDataLoaded}
+          >
+            {!masterDataLoaded ? '⏳ Loading...' : '🔄 Refresh Master Settings'}
+          </Button>
+        </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="space-y-2">
             <Label>Date of Registration *</Label>
@@ -868,36 +1462,133 @@ export const MemberForm: React.FC<MemberFormProps> = ({ initialData, enquiryData
 
           <div className="space-y-2">
             <Label>Payment Mode *</Label>
-            <Select onValueChange={(value) => setValue('paymentMode', value as 'cash' | 'upi' | 'bank_transfer')}>
+            <Select
+              onValueChange={(value) => setValue('paymentMode', value as 'cash' | 'upi' | 'bank_transfer')}
+              value={watch('paymentMode') || undefined}
+              disabled={!masterDataLoaded}
+            >
               <SelectTrigger>
-                <SelectValue placeholder="Select payment mode" />
+                <SelectValue placeholder={!masterDataLoaded ? "Loading payment modes..." : "Select payment mode"} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="cash">Cash</SelectItem>
-                <SelectItem value="upi">UPI</SelectItem>
-                <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
+                {!masterDataLoaded ? (
+                  <SelectItem value="loading" disabled>Loading payment modes...</SelectItem>
+                ) : paymentTypes.length > 0 ? (
+                  paymentTypes
+                    .filter(paymentType => paymentType && (paymentType.id || paymentType.name)) // Better filtering
+                    .map((paymentType, index) => {
+                      // Generate a guaranteed unique key using index as fallback
+                      const uniqueKey = paymentType.id || paymentType.name || `payment-${index}`;
+                      const safeValue = paymentType.name ? paymentType.name.toLowerCase().replace(/\s+/g, '_') : `payment-${index}`;
+
+                      return (
+                        <SelectItem key={uniqueKey} value={safeValue}>
+                          <div className="flex flex-col">
+                            <span className="font-medium">{paymentType.name || `Payment Method ${index + 1}`}</span>
+                            {paymentType.description && (
+                              <span className="text-xs text-muted-foreground">{paymentType.description}</span>
+                            )}
+                          </div>
+                        </SelectItem>
+                      );
+                    })
+                ) : (
+                  // Fallback to hardcoded values if no master settings available
+                  <>
+                    <SelectItem value="cash">💵 Cash</SelectItem>
+                    <SelectItem value="upi">📱 UPI</SelectItem>
+                    <SelectItem value="bank_transfer">🏦 Bank Transfer</SelectItem>
+                  </>
+                )}
               </SelectContent>
             </Select>
             {errors.paymentMode && (
               <p className="text-sm text-destructive">{errors.paymentMode.message}</p>
             )}
+
+            {/* Show master payment types info */}
+            {paymentTypes.length > 0 && (
+              <div className="text-xs text-green-600 bg-green-50 p-2 rounded border border-green-200">
+                💡 Payment methods loaded from Master Settings ({paymentTypes.length} available).
+              </div>
+            )}
+
+            {/* Show fallback info */}
+            {paymentTypes.length === 0 && (
+              <div className="text-xs text-amber-600 bg-amber-50 p-2 rounded border border-amber-200">
+                ⚠️ Using default payment methods. Configure payment types in Master Settings for more options.
+              </div>
+            )}
           </div>
 
           <div className="space-y-2">
             <Label>Plan Type *</Label>
-            <Select onValueChange={(value) => setValue('planType', value as 'monthly' | 'quarterly' | 'half_yearly' | 'yearly')}>
+            <Select
+              onValueChange={(value) => setValue('planType', value as 'monthly' | 'quarterly' | 'half_yearly' | 'yearly')}
+              value={watch('planType') || undefined}
+              disabled={!masterDataLoaded}
+            >
               <SelectTrigger>
-                <SelectValue placeholder="Select plan type" />
+                <SelectValue placeholder={!masterDataLoaded ? "Loading plans..." : "Select plan type"} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="monthly">Monthly</SelectItem>
-                <SelectItem value="quarterly">Quarterly</SelectItem>
-                <SelectItem value="half_yearly">Half Yearly</SelectItem>
-                <SelectItem value="yearly">Yearly</SelectItem>
+                {!masterDataLoaded ? (
+                  <SelectItem value="loading" disabled>Loading plans...</SelectItem>
+                ) : packages.length > 0 ? (
+                  packages
+                    .filter(pkg => pkg && (pkg.id || pkg.name || pkg.duration_type)) // Better filtering
+                    .map((pkg, index) => {
+                      // Generate a guaranteed unique key using index as fallback
+                      const uniqueKey = pkg.id || pkg.name || pkg.duration_type || `package-${index}`;
+                      // Ensure value is never null - use duration_type as primary value
+                      const uniqueValue = pkg.duration_type || pkg.name || pkg.id?.toString() || `plan-${index}`;
+
+                      return (
+                        <SelectItem key={uniqueKey} value={uniqueValue}>
+                          <div className="flex flex-col">
+                            <span className="font-medium">{pkg.name || pkg.duration_type || `Plan ${index + 1}`}</span>
+                            <div className="text-xs text-muted-foreground flex gap-2">
+                              {pkg.duration_months && (
+                                <span>{pkg.duration_months} month{pkg.duration_months > 1 ? 's' : ''}</span>
+                              )}
+                              {pkg.price && (
+                                <span>₹{pkg.price}</span>
+                              )}
+                              {pkg.description && (
+                                <span>{pkg.description}</span>
+                              )}
+                            </div>
+                          </div>
+                        </SelectItem>
+                      );
+                    })
+                ) : (
+                  // Fallback to hardcoded values if no master settings available
+                  <>
+                    <SelectItem value="monthly">Monthly</SelectItem>
+                    <SelectItem value="quarterly">Quarterly</SelectItem>
+                    <SelectItem value="half_yearly">Half Yearly</SelectItem>
+                    <SelectItem value="yearly">Yearly</SelectItem>
+                  </>
+                )}
               </SelectContent>
             </Select>
             {errors.planType && (
               <p className="text-sm text-destructive">{errors.planType.message}</p>
+            )}
+
+            {/* Show master packages info */}
+            {packages.length > 0 && (
+              <div className="text-xs text-blue-600 bg-blue-50 p-2 rounded border border-blue-200">
+                💡 Plans loaded from Master Settings ({packages.length} available). Selecting a plan will automatically map fees.
+              </div>
+            )}
+
+            {/* Show fallback info */}
+            {packages.length === 0 && (
+              <div className="text-xs text-amber-600 bg-amber-50 p-2 rounded border border-amber-200">
+                ⚠️ Using default plans. Configure plans in Master Settings for automatic fee mapping.
+              </div>
             )}
           </div>
 
@@ -970,6 +1661,181 @@ export const MemberForm: React.FC<MemberFormProps> = ({ initialData, enquiryData
             </div>
           </div>
 
+          {/* Enhanced Tax Settings Section */}
+          {taxSettings.length > 0 && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <Label className="text-base font-semibold text-gray-900">Tax Settings</Label>
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline" className="text-xs">{getTaxTypeLabel()}</Badge>
+                  {Object.values(selectedTaxes).some(selected => selected) && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={clearAllTaxes}
+                      className="text-xs text-red-600 hover:text-red-800"
+                    >
+                      Clear All
+                    </Button>
+                  )}
+                </div>
+              </div>
+
+              {/* Tax Selection Dropdowns */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Inclusive Tax Dropdown */}
+                {taxSettings.filter(tax => tax.is_inclusive).length > 0 && (
+                  <div className="space-y-2">
+                    <Label className="text-sm font-semibold text-blue-700 flex items-center gap-2">
+                      <Badge variant="secondary" className="bg-blue-100 text-blue-800 border-blue-300 text-xs">
+                        Tax Inclusive
+                      </Badge>
+                      Select Inclusive Tax
+                    </Label>
+                    <Select
+                      value={Object.keys(selectedTaxes).find(id => selectedTaxes[id] && taxSettings.find(t => t.id === id)?.is_inclusive) || undefined}
+                      onValueChange={(value) => {
+                        if (value && value !== "none") {
+                          // Clear all taxes and select only this inclusive tax
+                          const newSelection: { [key: string]: boolean } = {};
+                          taxSettings.forEach(tax => {
+                            newSelection[tax.id] = tax.id === value;
+                          });
+                          setTaxSelection(newSelection);
+                        } else {
+                          clearAllTaxes();
+                        }
+                      }}
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Choose inclusive tax (optional)" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem key="inclusive-none" value="none">No Tax</SelectItem>
+                        {taxSettings
+                          .filter(tax => tax.is_inclusive)
+                          .map(tax => (
+                            <SelectItem key={`inclusive-${tax.id}`} value={tax.id}>
+                              {tax.name} ({tax.rate}%) - {tax.tax_type?.toUpperCase() || 'TAX'}
+                            </SelectItem>
+                          ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-blue-600">
+                      Tax amount is already included in the price. Total won't change.
+                    </p>
+                  </div>
+                )}
+
+                {/* Exclusive Tax Dropdown */}
+                {taxSettings.filter(tax => !tax.is_inclusive).length > 0 && (
+                  <div className="space-y-2">
+                    <Label className="text-sm font-semibold text-green-700 flex items-center gap-2">
+                      <Badge variant="secondary" className="bg-green-100 text-green-800 border-green-300 text-xs">
+                        Tax Exclusive
+                      </Badge>
+                      Select Exclusive Tax
+                    </Label>
+                    <Select
+                      value={Object.keys(selectedTaxes).find(id => selectedTaxes[id] && taxSettings.find(t => t.id === id && !t.is_inclusive)) || undefined}
+                      onValueChange={(value) => {
+                        if (value && value !== "none") {
+                          // Clear all taxes and select only this exclusive tax
+                          const newSelection: { [key: string]: boolean } = {};
+                          taxSettings.forEach(tax => {
+                            newSelection[tax.id] = tax.id === value;
+                          });
+                          setTaxSelection(newSelection);
+                        } else {
+                          clearAllTaxes();
+                        }
+                      }}
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Choose exclusive tax (optional)" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem key="exclusive-none" value="none">No Tax</SelectItem>
+                        {taxSettings
+                          .filter(tax => !tax.is_inclusive)
+                          .map(tax => (
+                            <SelectItem key={`exclusive-${tax.id}`} value={tax.id}>
+                              {tax.name} ({tax.rate}%) - {tax.tax_type?.toUpperCase() || 'TAX'}
+                            </SelectItem>
+                          ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-green-600">
+                      Tax amount will be added to the total price.
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {/* Tax Summary */}
+              {calculationResult.taxAmount > 0 && (
+                <div className="mt-4 p-3 bg-gray-50 rounded border">
+                  <div className="text-sm space-y-1">
+                    <div className="flex justify-between">
+                      <span>Base Amount:</span>
+                      <span>₹{calculationResult.baseAmount.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Total Tax ({getTaxTypeLabel()}):</span>
+                      <span>₹{calculationResult.taxAmount.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between font-semibold border-t pt-1">
+                      <span>Final Amount:</span>
+                      <span>₹{calculationResult.totalAmount.toFixed(2)}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Master Settings Integration Info */}
+          <div className="bg-blue-50 border border-blue-200 p-3 rounded">
+            <div className="flex items-start gap-2">
+              <span className="text-blue-600 text-sm">ℹ️</span>
+              <div className="text-xs text-blue-700">
+                <p className="font-medium mb-1">Master Settings Integration Status:</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className={`p-2 rounded ${occupations.length > 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                    <strong>Occupations:</strong> {occupations.length} loaded
+                    {occupations.length === 0 && <div className="text-xs">Configure in Master Settings → Occupations</div>}
+                  </div>
+                  <div className={`p-2 rounded ${packages.length > 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                    <strong>Packages:</strong> {packages.length} loaded
+                    {packages.length === 0 && <div className="text-xs">Configure in Master Settings → Packages</div>}
+                  </div>
+                  <div className={`p-2 rounded ${paymentTypes.length > 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                    <strong>Payment Types:</strong> {paymentTypes.length} loaded
+                    {paymentTypes.length === 0 && <div className="text-xs">Configure in Master Settings → Payment Types</div>}
+                  </div>
+                  <div className={`p-2 rounded ${taxSettings.length > 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                    <strong>Tax Settings:</strong> {taxSettings.length} loaded
+                    {taxSettings.length === 0 && <div className="text-xs">Configure in Master Settings → Tax Settings</div>}
+                  </div>
+                </div>
+
+                {/* Debug Information */}
+                <details className="mt-3">
+                  <summary className="cursor-pointer text-blue-600 hover:text-blue-800">🔍 Debug Information</summary>
+                  <div className="mt-2 p-2 bg-gray-100 rounded text-xs font-mono">
+                    <div><strong>Occupations Sample:</strong> {occupations.slice(0, 2).map(o => o?.name || 'Unknown').join(', ') || 'None'}</div>
+                    <div><strong>Packages Sample:</strong> {packages.slice(0, 2).map(p => p?.name || p?.duration_type || 'Unknown').join(', ') || 'None'}</div>
+                    <div><strong>Payment Types Sample:</strong> {paymentTypes.slice(0, 2).map(pt => pt?.name || 'Unknown').join(', ') || 'None'}</div>
+                    <div><strong>Tax Settings Sample:</strong> {taxSettings.slice(0, 2).map(t => t?.name || 'Unknown').join(', ') || 'None'}</div>
+                    <div><strong>Selected Plan:</strong> {planType || 'None'}</div>
+                    <div><strong>Selected Taxes:</strong> {Object.keys(selectedTaxes).filter(id => selectedTaxes[id]).join(', ') || 'None'}</div>
+                  </div>
+                </details>
+              </div>
+            </div>
+          </div>
+
           {/* Fee Calculation Summary */}
           <div className="bg-muted/50 p-4 rounded-lg border">
             <div className="flex justify-between items-center mb-2">
@@ -988,21 +1854,58 @@ export const MemberForm: React.FC<MemberFormProps> = ({ initialData, enquiryData
                 <span>Discount:</span>
                 <span>-₹{discount || 0}</span>
               </div>
+
+              {/* Show base amount before tax */}
+              <div className="flex justify-between">
+                <span>Base Amount:</span>
+                <span>₹{Math.max(0, (registrationFee || 0) + (packageFee || 0) - (discount || 0))}</span>
+              </div>
+
+              {/* Show tax if selected */}
+              {(() => {
+                const selectedTaxId = Object.keys(selectedTaxes).find(id => selectedTaxes[id]);
+                if (selectedTaxId) {
+                  const selectedTax = taxSettings.find(tax => tax.id === selectedTaxId);
+                  if (selectedTax) {
+                    const baseAmount = Math.max(0, (registrationFee || 0) + (packageFee || 0) - (discount || 0));
+                    let taxAmount = 0;
+
+                    if (selectedTax.is_inclusive) {
+                      taxAmount = baseAmount - (baseAmount / (1 + (selectedTax.rate / 100)));
+                      return (
+                        <div className="flex justify-between text-amber-600">
+                          <span>{selectedTax.name} ({selectedTax.rate}%) (Inclusive):</span>
+                          <span>₹{taxAmount.toFixed(2)} (included in base amount)</span>
+                        </div>
+                      );
+                    } else {
+                      taxAmount = baseAmount * (selectedTax.rate / 100);
+                      return (
+                        <div className="flex justify-between text-green-600">
+                          <span>{selectedTax.name} ({selectedTax.rate}%) (Exclusive):</span>
+                          <span>+₹{taxAmount.toFixed(2)}</span>
+                        </div>
+                      );
+                    }
+                  }
+                }
+                return null;
+              })()}
+
               <div className="flex justify-between font-semibold border-t pt-1">
                 <span>Total Amount:</span>
-                <span>₹{Math.max(0, (registrationFee || 0) + (packageFee || 0) - (discount || 0))}</span>
+                <span>₹{watch('membershipFees') || 0}</span>
               </div>
               <div className="flex justify-between text-blue-600">
                 <span>Paid Amount:</span>
                 <span>₹{paidAmount || 0}</span>
               </div>
-              <div className={`flex justify-between font-semibold border-t pt-1 ${
-                Math.max(0, (registrationFee || 0) + (packageFee || 0) - (discount || 0)) - (paidAmount || 0) > 0 
-                  ? 'text-red-600' 
-                  : 'text-green-600'
-              }`}>
+              <div className={`flex justify-between font-semibold border-t pt-1 ${(watch('membershipFees') || 0) - (paidAmount || 0) > 0
+                ? 'text-red-600'
+                : 'text-green-600'
+                }`}>
                 <span>Due Amount:</span>
-                <span>₹{Math.max(0, Math.max(0, (registrationFee || 0) + (packageFee || 0) - (discount || 0)) - (paidAmount || 0))}</span>
+                <span>₹{Math.max(0, (watch('membershipFees') || 0) - (paidAmount || 0))}</span>
               </div>
             </div>
           </div>
@@ -1035,9 +1938,8 @@ export const MemberForm: React.FC<MemberFormProps> = ({ initialData, enquiryData
                 </div>
                 <div className="flex justify-between">
                   <span className="text-blue-700">Outstanding Due:</span>
-                  <span className={`font-semibold ${
-                    realTimeAmounts.totalDue > 0 ? 'text-red-600' : 'text-green-600'
-                  }`}>
+                  <span className={`font-semibold ${realTimeAmounts.totalDue > 0 ? 'text-red-600' : 'text-green-600'
+                    }`}>
                     ₹{realTimeAmounts.totalDue.toFixed(2)}
                   </span>
                 </div>
@@ -1095,7 +1997,10 @@ export const MemberForm: React.FC<MemberFormProps> = ({ initialData, enquiryData
 
           <div className="space-y-2">
             <Label>Status *</Label>
-            <Select onValueChange={(value) => setValue('status', value as 'active' | 'inactive' | 'frozen')}>
+            <Select
+              onValueChange={(value) => setValue('status', value as 'active' | 'inactive' | 'frozen')}
+              value={watch('status') || undefined}
+            >
               <SelectTrigger>
                 <SelectValue placeholder="Select status" />
               </SelectTrigger>

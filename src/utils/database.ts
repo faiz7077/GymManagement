@@ -6,6 +6,7 @@
 // This replaces the localStorage implementation with SQLite via Electron IPC
 
 import { TransactionReportData } from './api/types';
+// import { BodyMeasurement } from './api/interfaces';
 import { formatDateForDatabase } from './dateUtils';
 
 // Database interfaces (snake_case - matches database schema)
@@ -54,6 +55,49 @@ export interface Member {
   status: 'active' | 'inactive' | 'frozen';
   created_at: string;
   updated_at: string;
+}
+
+export interface DeletedMember {
+  id: string;
+  original_member_id: string;
+  custom_member_id?: string;
+  name: string;
+  email?: string;
+  address?: string;
+  telephone_no?: string;
+  mobile_no?: string;
+  occupation?: string;
+  marital_status?: string;
+  anniversary_date?: string;
+  blood_group?: string;
+  sex?: string;
+  date_of_birth?: string;
+  alternate_no?: string;
+  member_image?: string;
+  id_proof_image?: string;
+  date_of_registration?: string;
+  receipt_no?: string;
+  payment_mode?: string;
+  plan_type?: string;
+  services?: string;
+  membership_fees?: number;
+  registration_fee?: number;
+  package_fee?: number;
+  discount?: number;
+  paid_amount?: number;
+  subscription_start_date?: string;
+  subscription_end_date?: string;
+  subscription_status?: string;
+  medical_issues?: string;
+  goals?: string;
+  height?: number;
+  weight?: number;
+  status?: string;
+  original_created_at?: string;
+  original_updated_at?: string;
+  deleted_at: string;
+  deleted_by: string;
+  deletion_reason?: string;
 }
 
 // Frontend interface (camelCase - for React components)
@@ -354,7 +398,7 @@ const convertMemberToLegacy = (member: unknown): LegacyMember => {
   // Helper function to safely convert dates
   const safeDate = (dateValue: any): string => {
     if (!dateValue) return new Date().toISOString();
-    
+
     try {
       const date = new Date(dateValue);
       if (isNaN(date.getTime())) {
@@ -473,7 +517,7 @@ const convertEnquiryToLegacy = (enquiry: unknown): LegacyEnquiry => {
   // Helper function to safely convert dates
   const safeDate = (dateValue: any): string => {
     if (!dateValue) return new Date().toISOString();
-    
+
     try {
       const date = new Date(dateValue);
       if (isNaN(date.getTime())) {
@@ -569,13 +613,14 @@ declare global {
       // Users
       getAllUsers: () => Promise<{ success: boolean; data?: User[]; error?: string }>;
       createUser: (userData: Omit<User, 'id' | 'created_at'> & { id: string; created_at: string }) => Promise<{ success: boolean; error?: string }>;
+      updateUserPassword: (userId: string, newPassword: string) => Promise<{ success: boolean; error?: string }>;
 
       // Members
       getAllMembers: () => Promise<{ success: boolean; data?: Member[]; error?: string }>;
       getMemberById: (id: string) => Promise<{ success: boolean; data?: Member; error?: string }>;
       createMember: (memberData: Omit<Member, 'id' | 'created_at' | 'updated_at'> & { id: string; created_at: string }) => Promise<{ success: boolean; error?: string }>;
       updateMember: (id: string, memberData: Partial<Member>) => Promise<{ success: boolean; error?: string }>;
-      deleteMember: (id: string) => Promise<{ success: boolean; error?: string }>;
+      deleteMember: (id: string, deletedBy?: string, deletionReason?: string) => Promise<{ success: boolean; error?: string }>;
 
       // Attendance 
       getAllAttendance: () => Promise<{ success: boolean; data?: Attendance[]; error?: string }>;
@@ -598,6 +643,7 @@ declare global {
       getAllReceipts: () => Promise<{ success: boolean; data?: Receipt[]; error?: string }>;
       getMemberReceipts: () => Promise<{ success: boolean; data?: Receipt[]; error?: string }>;
       getReceiptsByMember: (memberId: string) => Promise<{ success: boolean; data?: Receipt[]; error?: string }>;
+      getMemberReceiptHistory: (memberId: string) => Promise<{ success: boolean; data?: Receipt[]; error?: string }>;
       createReceipt: (receiptData: Omit<Receipt, 'id'> & { id: string }) => Promise<{ success: boolean; error?: string }>;
       updateReceipt: (id: string, receiptData: Partial<Receipt>) => Promise<{ success: boolean; error?: string }>;
       deleteReceipt: (id: string) => Promise<{ success: boolean; error?: string }>;
@@ -617,10 +663,19 @@ declare global {
       openReceiptsFolder: () => Promise<{ success: boolean; error?: string }>;
       getReceiptFilePath: (receiptData: Receipt) => Promise<{ success: boolean; filePath?: string; filename?: string; exists?: boolean; error?: string }>;
 
+      // Partial Members
+      savePartialMember: (partialData: any) => Promise<{ success: boolean; data?: any; error?: string }>;
+      isPartialMember: (memberId: string) => Promise<{ success: boolean; data?: boolean; error?: string }>;
+      completePartialMember: (memberId: string, membershipData: any) => Promise<{ success: boolean; data?: any; error?: string }>;
+      getPartialMembers: () => Promise<{ success: boolean; data?: any[]; error?: string }>;
+
       // Utilities
       generateId: () => Promise<string>;
       generateReceiptNumber: () => Promise<string>;
       generateInvoiceNumber: () => Promise<string>;
+      generateMemberNumber: () => Promise<string>;
+      updateMemberNumber: (memberId: string, newMemberNumber: string) => Promise<{ success: boolean; error?: string }>;
+      checkMemberNumberAvailable: (memberNumber: string, excludeMemberId?: string) => Promise<{ available: boolean; error?: string }>;
 
       // Invoices
       createInvoice: (invoiceData: unknown) => Promise<{ success: boolean; error?: string }>;
@@ -647,6 +702,7 @@ declare global {
 
       // WhatsApp Automation
       getAllWhatsAppMessages: () => Promise<{ success: boolean; data?: any[]; error?: string }>;
+      getPendingWhatsAppMessages: () => Promise<any[]>;
       retryWhatsAppMessage: (messageId: string) => Promise<{ success: boolean; error?: string }>;
       triggerBirthdayMessages: () => Promise<{ success: boolean; data?: number; error?: string }>;
       triggerExpiryReminders: () => Promise<{ success: boolean; data?: number; error?: string }>;
@@ -665,6 +721,51 @@ declare global {
       getExpensesByCategory: (category: string) => Promise<{ success: boolean; data?: Expense[]; error?: string }>;
       getExpensesByDateRange: (startDate: string, endDate: string) => Promise<{ success: boolean; data?: Expense[]; error?: string }>;
       getMonthlyExpenseReport: (year: number, month: number) => Promise<{ success: boolean; data?: any; error?: string }>;
+
+      // Master Settings
+      masterPackagesGetAll: () => Promise<{ success: boolean; data?: any[]; error?: string }>;
+      masterPackagesCreate: (packageData: any) => Promise<{ success: boolean; error?: string }>;
+      masterPackagesUpdate: (id: number, packageData: any) => Promise<{ success: boolean; error?: string }>;
+      masterPackagesDelete: (id: number) => Promise<{ success: boolean; error?: string }>;
+
+      masterTaxSettingsGetAll: () => Promise<{ success: boolean; data?: any[]; error?: string }>;
+      masterTaxSettingsCreate: (taxData: any) => Promise<{ success: boolean; error?: string }>;
+      masterTaxSettingsUpdate: (id: number, taxData: any) => Promise<{ success: boolean; error?: string }>;
+      masterTaxSettingsDelete: (id: number) => Promise<{ success: boolean; error?: string }>;
+
+      masterExpenseCategoriesGetAll: () => Promise<{ success: boolean; data?: any[]; error?: string }>;
+      masterExpenseCategoriesCreate: (categoryData: any) => Promise<{ success: boolean; error?: string }>;
+      masterExpenseCategoriesUpdate: (id: number, categoryData: any) => Promise<{ success: boolean; error?: string }>;
+      masterExpenseCategoriesDelete: (id: number) => Promise<{ success: boolean; error?: string }>;
+
+      masterOccupationsGetAll: () => Promise<{ success: boolean; data?: any[]; error?: string }>;
+      masterOccupationsCreate: (occupationData: any) => Promise<{ success: boolean; error?: string }>;
+      masterOccupationsUpdate: (id: number, occupationData: any) => Promise<{ success: boolean; error?: string }>;
+      masterOccupationsDelete: (id: number) => Promise<{ success: boolean; error?: string }>;
+
+      masterPaymentTypesGetAll: () => Promise<{ success: boolean; data?: any[]; error?: string }>;
+      masterPaymentTypesCreate: (paymentData: any) => Promise<{ success: boolean; error?: string }>;
+      masterPaymentTypesUpdate: (id: number, paymentData: any) => Promise<{ success: boolean; error?: string }>;
+      masterPaymentTypesDelete: (id: number) => Promise<{ success: boolean; error?: string }>;
+
+      masterBodyMeasurementFieldsGetAll: () => Promise<{ success: boolean; data?: any[]; error?: string }>;
+      masterBodyMeasurementFieldsCreate: (fieldData: any) => Promise<{ success: boolean; error?: string }>;
+      masterBodyMeasurementFieldsUpdate: (id: number, fieldData: any) => Promise<{ success: boolean; error?: string }>;
+      masterBodyMeasurementFieldsDelete: (id: number) => Promise<{ success: boolean; error?: string }>;
+
+      // Receipt Tax Operations
+      createReceiptWithTaxes: (receiptData: any, taxMappings: any[]) => Promise<{ success: boolean; receiptCreated?: boolean; taxMappingsCreated?: number; error?: string }>;
+      updateReceiptWithTaxes: (receiptId: string, receiptData: any, taxMappings: any[]) => Promise<{ success: boolean; receiptUpdated?: boolean; taxMappingsCreated?: number; error?: string }>;
+      getReceiptWithTaxes: (receiptId: string) => Promise<{ success: boolean; data?: any; error?: string }>;
+      getReceiptTaxMappings: (receiptId: string) => Promise<{ success: boolean; data?: any[]; error?: string }>;
+      getTaxCollectionReport: (startDate: string, endDate: string, taxType?: string) => Promise<{ success: boolean; data?: any[]; error?: string }>;
+      getMonthlyTaxReport: (year: number, month: number) => Promise<{ success: boolean; data?: any[]; error?: string }>;
+
+      // Deleted Members
+      getAllDeletedMembers: () => Promise<{ success: boolean; data?: DeletedMember[]; error?: string }>;
+      getDeletedMemberById: (id: string) => Promise<{ success: boolean; data?: DeletedMember; error?: string }>;
+      restoreDeletedMember: (deletedMemberId: string) => Promise<{ success: boolean; memberId?: string; error?: string }>;
+      permanentlyDeleteMember: (deletedMemberId: string) => Promise<{ success: boolean; error?: string }>;
 
     };
   }
@@ -705,6 +806,16 @@ class DatabaseService {
       return result.success;
     } catch (error) {
       console.error('Create user error:', error);
+      return false;
+    }
+  }
+
+  static async updateUserPassword(userId: string, newPassword: string): Promise<boolean> {
+    try {
+      const result = await window.electronAPI.updateUserPassword(userId, newPassword);
+      return result.success;
+    } catch (error) {
+      console.error('Update user password error:', error);
       return false;
     }
   }
@@ -760,13 +871,54 @@ class DatabaseService {
     }
   }
 
-  static async deleteMember(id: string): Promise<boolean> {
+  static async deleteMember(id: string, deletedBy?: string, deletionReason?: string): Promise<boolean> {
     try {
-      const result = await window.electronAPI.deleteMember(id);
+      const result = await window.electronAPI.deleteMember(id, deletedBy, deletionReason);
       return result.success;
     } catch (error) {
       console.error('Delete member error:', error);
       return false;
+    }
+  }
+
+  // Deleted Members
+  static async getAllDeletedMembers(): Promise<DeletedMember[]> {
+    try {
+      const result = await window.electronAPI.getAllDeletedMembers();
+      return result.success ? result.data || [] : [];
+    } catch (error) {
+      console.error('Get deleted members error:', error);
+      return [];
+    }
+  }
+
+  static async getDeletedMemberById(id: string): Promise<DeletedMember | null> {
+    try {
+      const result = await window.electronAPI.getDeletedMemberById(id);
+      return result.success ? result.data || null : null;
+    } catch (error) {
+      console.error('Get deleted member by ID error:', error);
+      return null;
+    }
+  }
+
+  static async restoreDeletedMember(deletedMemberId: string): Promise<{ success: boolean; memberId?: string; error?: string }> {
+    try {
+      const result = await window.electronAPI.restoreDeletedMember(deletedMemberId);
+      return result;
+    } catch (error) {
+      console.error('Restore deleted member error:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  static async permanentlyDeleteMember(deletedMemberId: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      const result = await window.electronAPI.permanentlyDeleteMember(deletedMemberId);
+      return result;
+    } catch (error) {
+      console.error('Permanently delete member error:', error);
+      return { success: false, error: error.message };
     }
   }
 
@@ -783,10 +935,30 @@ class DatabaseService {
   static async payMemberDueAmount(memberId: string, paymentAmount: number, paymentType: string = 'cash', createdBy: string = 'System'): Promise<unknown> {
     try {
       const result = await window.electronAPI.payMemberDueAmount(memberId, paymentAmount, paymentType, createdBy);
-      return result.success ? result.data : false;
+      return result;
     } catch (error) {
       console.error('Pay member due amount error:', error);
-      return false;
+      return { success: false, error: error.message };
+    }
+  }
+
+  static async findMemberByMobile(mobileNumber: string): Promise<unknown> {
+    try {
+      const result = await window.electronAPI.findMemberByMobile(mobileNumber);
+      return result;
+    } catch (error) {
+      console.error('Find member by mobile error:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  static async getMemberPaymentHistory(memberId: string): Promise<unknown> {
+    try {
+      const result = await window.electronAPI.getMemberPaymentHistory(memberId);
+      return result;
+    } catch (error) {
+      console.error('Get member payment history error:', error);
+      return { success: false, error: error.message };
     }
   }
 
@@ -930,6 +1102,16 @@ class DatabaseService {
     }
   }
 
+  static async getMemberReceiptHistory(memberId: string): Promise<Receipt[]> {
+    try {
+      const result = await window.electronAPI.getMemberReceiptHistory(memberId);
+      return result.success ? result.data || [] : [];
+    } catch (error) {
+      console.error('Get member receipt history error:', error);
+      return [];
+    }
+  }
+
   static async createReceipt(receiptData: unknown): Promise<boolean> {
     try {
       const result = await window.electronAPI.createReceipt(receiptData);
@@ -946,6 +1128,192 @@ class DatabaseService {
       return result.success;
     } catch (error) {
       console.error('Update receipt error:', error);
+      return false;
+    }
+  }
+
+  static async getReceiptHistory(originalReceiptId: string): Promise<Receipt[]> {
+    try {
+      const result = await window.electronAPI.getReceiptHistory(originalReceiptId);
+      return result.success ? result.data || [] : [];
+    } catch (error) {
+      console.error('Get receipt history error:', error);
+      return [];
+    }
+  }
+
+  // Track ongoing receipt creation to prevent duplicates
+  private static ongoingReceiptCreation = new Set<string>();
+
+  static async createMemberUpdateReceipt(
+    memberId: string,
+    newMemberData: Partial<LegacyMember>,
+    originalMemberData: LegacyMember,
+    createdBy: string
+  ): Promise<boolean> {
+    try {
+      console.log('💰 Creating member update receipt for:', memberId);
+
+      // Check if we're already creating a receipt for this member
+      const receiptKey = `${memberId}_${Date.now().toString().slice(-6)}`; // Use last 6 digits of timestamp
+      if (this.ongoingReceiptCreation.has(memberId)) {
+        console.log('💰 Receipt creation already in progress for member:', memberId);
+        return true;
+      }
+
+      // Mark as in progress
+      this.ongoingReceiptCreation.add(memberId);
+
+      // Clean up after 30 seconds
+      setTimeout(() => {
+        this.ongoingReceiptCreation.delete(memberId);
+      }, 30000);
+
+      // Calculate the new totals
+      const newTotalAmount = (newMemberData.registrationFee || originalMemberData.registrationFee || 0) +
+        (newMemberData.packageFee || originalMemberData.packageFee || newMemberData.membershipFees || originalMemberData.membershipFees || 0) -
+        (newMemberData.discount || originalMemberData.discount || 0);
+
+      const newPaidAmount = newMemberData.paidAmount || originalMemberData.paidAmount || 0;
+      const newDueAmount = Math.max(0, newTotalAmount - newPaidAmount);
+
+      // Calculate the original totals for comparison
+      const originalTotalAmount = (originalMemberData.registrationFee || 0) +
+        (originalMemberData.packageFee || originalMemberData.membershipFees || 0) -
+        (originalMemberData.discount || 0);
+
+      const originalPaidAmount = originalMemberData.paidAmount || 0;
+
+      // Calculate the difference in paid amount
+      const paidAmountDifference = newPaidAmount - originalPaidAmount;
+
+      console.log('💰 Payment calculation:', {
+        originalTotal: originalTotalAmount,
+        newTotal: newTotalAmount,
+        originalPaid: originalPaidAmount,
+        newPaid: newPaidAmount,
+        difference: paidAmountDifference,
+        newDue: newDueAmount
+      });
+
+      // Only create receipt if there's a meaningful change
+      if (Math.abs(paidAmountDifference) < 0.01 && Math.abs(newTotalAmount - originalTotalAmount) < 0.01) {
+        console.log('💰 No significant payment changes, skipping receipt creation');
+        return true;
+      }
+
+      // Determine the type of change for better description
+      let changeDescription = 'Member payment update';
+      if (paidAmountDifference > 0) {
+        changeDescription = `Additional payment of ₹${paidAmountDifference.toFixed(2)}`;
+      } else if (paidAmountDifference < 0) {
+        changeDescription = `Payment adjustment (refund) of ₹${Math.abs(paidAmountDifference).toFixed(2)}`;
+      } else if (newTotalAmount !== originalTotalAmount) {
+        changeDescription = `Fee structure update - Total changed from ₹${originalTotalAmount.toFixed(2)} to ₹${newTotalAmount.toFixed(2)}`;
+      }
+
+      // Generate receipt data
+      const receiptId = await window.electronAPI.generateId();
+      const receiptNumber = await window.electronAPI.generateReceiptNumber();
+
+      const receiptData = {
+        id: receiptId,
+        receipt_number: receiptNumber,
+        member_id: memberId,
+        member_name: newMemberData.name || originalMemberData.name,
+        custom_member_id: newMemberData.customMemberId || originalMemberData.customMemberId,
+        amount: newTotalAmount,
+        amount_paid: paidAmountDifference > 0 ? paidAmountDifference : 0, // Only positive differences (additional payments)
+        due_amount: newDueAmount,
+        payment_type: newMemberData.paymentMode || originalMemberData.paymentMode || 'cash',
+        description: changeDescription,
+        receipt_category: 'member',
+        transaction_type: 'update',
+        subscription_start_date: newMemberData.subscriptionStartDate || originalMemberData.subscriptionStartDate,
+        subscription_end_date: newMemberData.subscriptionEndDate || originalMemberData.subscriptionEndDate,
+        plan_type: newMemberData.planType || originalMemberData.planType,
+        payment_mode: newMemberData.paymentMode || originalMemberData.paymentMode,
+        mobile_no: newMemberData.mobileNo || originalMemberData.mobileNo,
+        package_fee: newMemberData.packageFee || newMemberData.membershipFees || originalMemberData.packageFee || originalMemberData.membershipFees || 0,
+        registration_fee: newMemberData.registrationFee || originalMemberData.registrationFee || 0,
+        discount: newMemberData.discount || originalMemberData.discount || 0,
+        email: newMemberData.email || originalMemberData.email,
+        cgst: 0, // Calculate if needed
+        sigst: 0, // Calculate if needed
+        created_at: new Date().toISOString(),
+        created_by: createdBy
+      };
+
+      console.log('💰 Creating receipt with data:', receiptData);
+
+      const result = await window.electronAPI.createReceipt(receiptData);
+
+      if (result.success) {
+        console.log('✅ Member update receipt created successfully');
+        return true;
+      } else {
+        throw new Error(result.error || 'Failed to create member update receipt');
+      }
+    } catch (error) {
+      console.error('❌ Create member update receipt error:', error);
+      return false;
+    } finally {
+      // Clean up the flag
+      this.ongoingReceiptCreation.delete(memberId);
+    }
+  }
+
+  static async createReceiptVersion(originalReceiptId: string, receiptData: Partial<Receipt>): Promise<boolean> {
+    try {
+      console.log('🔄 Creating new receipt version for:', originalReceiptId);
+
+      // Get the original receipt data
+      const originalReceipt = await this.getReceiptById(originalReceiptId);
+      if (!originalReceipt) {
+        throw new Error('Original receipt not found');
+      }
+
+      // Create new receipt with updated data
+      const newReceiptId = await window.electronAPI.generateId();
+      const newReceiptNumber = await window.electronAPI.generateReceiptNumber();
+
+      const newReceiptData = {
+        id: newReceiptId,
+        receipt_number: newReceiptNumber,
+        member_id: receiptData.member_id || originalReceipt.member_id,
+        member_name: receiptData.member_name || originalReceipt.member_name,
+        custom_member_id: receiptData.custom_member_id || originalReceipt.custom_member_id,
+        amount: receiptData.amount || originalReceipt.amount,
+        amount_paid: receiptData.amount_paid || originalReceipt.amount_paid,
+        due_amount: receiptData.due_amount !== undefined ? receiptData.due_amount : originalReceipt.due_amount,
+        payment_type: receiptData.payment_type || originalReceipt.payment_type,
+        description: receiptData.description || originalReceipt.description,
+        receipt_category: receiptData.receipt_category || originalReceipt.receipt_category,
+        cgst: receiptData.cgst !== undefined ? receiptData.cgst : originalReceipt.cgst,
+        sigst: receiptData.sigst !== undefined ? receiptData.sigst : originalReceipt.sigst,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        created_by: receiptData.created_by || 'System',
+        // Add versioning fields
+        original_receipt_id: originalReceiptId,
+        version_number: (originalReceipt.version_number || 1) + 1,
+        is_current_version: true
+      };
+
+      // Create the new receipt
+      const createResult = await window.electronAPI.createReceiptVersion(newReceiptData);
+
+      if (createResult.success) {
+        // Mark the original receipt as superseded
+        await window.electronAPI.markReceiptAsSuperseded(originalReceiptId);
+
+        console.log('✅ Receipt version created successfully');
+        return true;
+      } else {
+        throw new Error(createResult.error || 'Failed to create receipt version');
+      }
+    } catch (error) {
+      console.error('Create receipt version error:', error);
       return false;
     }
   }
@@ -982,8 +1350,26 @@ class DatabaseService {
     }
   }
 
-  static async createEnquiry(enquiryData: Omit<LegacyEnquiry, 'id' | 'createdAt' | 'updatedAt'>): Promise<boolean> {
+  static async createEnquiry(enquiryData: Omit<LegacyEnquiry, 'id' | 'createdAt' | 'updatedAt'>): Promise<{ success: boolean; error?: string }> {
     try {
+      console.log('🔵 DatabaseService.createEnquiry - Input data:', enquiryData);
+
+      // Validate required fields
+      if (!enquiryData.mobileNo || enquiryData.mobileNo.trim() === '') {
+        console.error('❌ Mobile number is required but missing or empty');
+        throw new Error('Mobile number is required');
+      }
+
+      if (!enquiryData.name || enquiryData.name.trim() === '') {
+        console.error('❌ Name is required but missing or empty');
+        throw new Error('Name is required');
+      }
+
+      if (!enquiryData.address || enquiryData.address.trim() === '') {
+        console.error('❌ Address is required but missing or empty');
+        throw new Error('Address is required');
+      }
+
       const id = await window.electronAPI.generateId();
       const enquiryNumber = await window.electronAPI.generateEnquiryNumber();
 
@@ -991,32 +1377,83 @@ class DatabaseService {
       const dbEnquiryData = {
         id,
         enquiry_number: enquiryNumber,
-        name: enquiryData.name,
-        address: enquiryData.address,
-        telephone_no: enquiryData.telephoneNo,
-        mobile_no: enquiryData.mobileNo,
-        occupation: enquiryData.occupation,
+        name: enquiryData.name.trim(),
+        address: enquiryData.address.trim(),
+        telephone_no: enquiryData.telephoneNo?.trim() || null,
+        mobile_no: enquiryData.mobileNo.trim(), // This should not be null/undefined
+        occupation: enquiryData.occupation.trim(),
         sex: enquiryData.sex,
-        ref_person_name: enquiryData.refPersonName,
+        ref_person_name: enquiryData.refPersonName?.trim() || null,
         date_of_enquiry: enquiryData.dateOfEnquiry,
         interested_in: JSON.stringify(enquiryData.interestedIn),
         membership_fees: enquiryData.membershipFees,
         payment_mode: enquiryData.paymentMode,
         payment_frequency: enquiryData.paymentFrequency,
         status: enquiryData.status || 'new',
-        notes: enquiryData.notes,
-        follow_up_date: enquiryData.followUpDate,
-        converted_to_member_id: enquiryData.convertedToMemberId,
+        notes: enquiryData.notes?.trim() || null,
+        follow_up_date: enquiryData.followUpDate || null,
+        converted_to_member_id: enquiryData.convertedToMemberId || null,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
-        created_by: enquiryData.createdBy
+        created_by: enquiryData.createdBy?.trim() || 'System'
       };
 
+      console.log('🔵 DatabaseService.createEnquiry - Transformed data:', dbEnquiryData);
+      console.log('🔵 Mobile number check:', {
+        original: enquiryData.mobileNo,
+        transformed: dbEnquiryData.mobile_no,
+        type: typeof dbEnquiryData.mobile_no,
+        isNull: dbEnquiryData.mobile_no === null,
+        isUndefined: dbEnquiryData.mobile_no === undefined,
+        isEmpty: dbEnquiryData.mobile_no === ''
+      });
+
+      // Final validation before sending to electron
+      if (!dbEnquiryData.mobile_no || dbEnquiryData.mobile_no === '') {
+        console.error('❌ Final validation failed: mobile_no is still empty after transformation');
+        throw new Error('Mobile number validation failed');
+      }
+
+      // Validate all required fields match database constraints
+      const requiredFields = ['name', 'address', 'mobile_no', 'occupation', 'sex', 'date_of_enquiry', 'interested_in', 'payment_mode', 'payment_frequency', 'status'];
+      for (const field of requiredFields) {
+        if (!dbEnquiryData[field] || (typeof dbEnquiryData[field] === 'string' && dbEnquiryData[field].trim() === '')) {
+          console.error(`❌ Required field ${field} is missing or empty:`, dbEnquiryData[field]);
+          throw new Error(`Required field ${field} is missing`);
+        }
+      }
+
+      // Validate enum constraints
+      const validPaymentModes = ['cash', 'cheque'];
+      if (!validPaymentModes.includes(dbEnquiryData.payment_mode)) {
+        console.error(`❌ Invalid payment_mode: ${dbEnquiryData.payment_mode}. Must be one of:`, validPaymentModes);
+        throw new Error(`Invalid payment mode: ${dbEnquiryData.payment_mode}`);
+      }
+
+      const validPaymentFrequencies = ['monthly', 'quarterly', 'half_yearly', 'yearly'];
+      if (!validPaymentFrequencies.includes(dbEnquiryData.payment_frequency)) {
+        console.error(`❌ Invalid payment_frequency: ${dbEnquiryData.payment_frequency}. Must be one of:`, validPaymentFrequencies);
+        throw new Error(`Invalid payment frequency: ${dbEnquiryData.payment_frequency}`);
+      }
+
+      const validSexValues = ['male', 'female'];
+      if (!validSexValues.includes(dbEnquiryData.sex)) {
+        console.error(`❌ Invalid sex: ${dbEnquiryData.sex}. Must be one of:`, validSexValues);
+        throw new Error(`Invalid sex value: ${dbEnquiryData.sex}`);
+      }
+
+      const validStatuses = ['new', 'contacted', 'follow_up', 'converted', 'closed'];
+      if (!validStatuses.includes(dbEnquiryData.status)) {
+        console.error(`❌ Invalid status: ${dbEnquiryData.status}. Must be one of:`, validStatuses);
+        throw new Error(`Invalid status: ${dbEnquiryData.status}`);
+      }
+
+      console.log('✅ All validations passed, sending to electron...');
       const result = await window.electronAPI.createEnquiry(dbEnquiryData);
-      return result.success;
+      return { success: result.success };
     } catch (error) {
       console.error('Create enquiry error:', error);
-      return false;
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
     }
   }
 
@@ -1078,16 +1515,6 @@ class DatabaseService {
     } catch (error) {
       console.error('Generate enquiry number error:', error);
       return `ENQ${Date.now()}`;
-    }
-  }
-
-  static async convertEnquiryToMember(enquiryId: string, memberData: any): Promise<{ success: boolean; memberId?: string; error?: string }> {
-    try {
-      const result = await window.electronAPI.convertEnquiryToMember(enquiryId, memberData);
-      return result;
-    } catch (error) {
-      console.error('Convert enquiry to member error:', error);
-      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
     }
   }
 
@@ -1162,6 +1589,16 @@ class DatabaseService {
     }
   }
 
+  static async getPendingWhatsAppMessages(): Promise<any[]> {
+    try {
+      const result = await window.electronAPI.getPendingWhatsAppMessages();
+      return result.success ? result.data || [] : [];
+    } catch (error) {
+      console.error('Get pending WhatsApp messages error:', error);
+      return [];
+    }
+  }
+
   static async updateWhatsAppMessageStatus(messageId: string, status: string, sentAt?: string, errorMessage?: string): Promise<{ success: boolean; error?: string }> {
     try {
       const result = await window.electronAPI.updateWhatsAppMessageStatus(messageId, status, sentAt, errorMessage);
@@ -1212,168 +1649,6 @@ class DatabaseService {
     }
   }
 
-  // Enquiry methods
-  static async getAllEnquiries(): Promise<any[]> {
-    try {
-      const result = await window.electronAPI.getAllEnquiries();
-      return result.success ? result.data || [] : [];
-    } catch (error) {
-      console.error('Get all enquiries error:', error);
-      return [];
-    }
-  }
-
-  static async getEnquiryById(id: string): Promise<any | null> {
-    try {
-      const result = await window.electronAPI.getEnquiryById(id);
-      return result.success && result.data ? result.data : null;
-    } catch (error) {
-      console.error('Get enquiry by ID error:', error);
-      return null;
-    }
-  }
-
-  static async createEnquiry(enquiryData: any): Promise<{ success: boolean; error?: string }> {
-    try {
-      const result = await window.electronAPI.createEnquiry(enquiryData);
-      return result;
-    } catch (error) {
-      console.error('Create enquiry error:', error);
-      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
-    }
-  }
-
-  static async updateEnquiry(id: string, enquiryData: any): Promise<{ success: boolean; error?: string }> {
-    try {
-      const result = await window.electronAPI.updateEnquiry(id, enquiryData);
-      return result;
-    } catch (error) {
-      console.error('Update enquiry error:', error);
-      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
-    }
-  }
-
-  static async deleteEnquiry(id: string): Promise<{ success: boolean; error?: string }> {
-    try {
-      const result = await window.electronAPI.deleteEnquiry(id);
-      return result;
-    } catch (error) {
-      console.error('Delete enquiry error:', error);
-      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
-    }
-  }
-
-  // Body Measurement methods
-  static async createBodyMeasurement(measurementData: any): Promise<{ success: boolean; error?: string }> {
-    try {
-      const result = await window.electronAPI.createBodyMeasurement(measurementData);
-      return result;
-    } catch (error) {
-      console.error('Create body measurement error:', error);
-      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
-    }
-  }
-
-  static async getAllBodyMeasurements(): Promise<any[]> {
-    try {
-      const result = await window.electronAPI.getAllBodyMeasurements();
-      return result.success ? result.data || [] : [];
-    } catch (error) {
-      console.error('Get all body measurements error:', error);
-      return [];
-    }
-  }
-
-  static async getBodyMeasurementsByMember(memberId: string): Promise<any[]> {
-    try {
-      const result = await window.electronAPI.getBodyMeasurementsByMember(memberId);
-      return result.success ? result.data || [] : [];
-    } catch (error) {
-      console.error('Get body measurements by member error:', error);
-      return [];
-    }
-  }
-
-  static async updateBodyMeasurement(id: string, measurementData: any): Promise<{ success: boolean; error?: string }> {
-    try {
-      const result = await window.electronAPI.updateBodyMeasurement(id, measurementData);
-      return result;
-    } catch (error) {
-      console.error('Update body measurement error:', error);
-      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
-    }
-  }
-
-  static async deleteBodyMeasurement(id: string): Promise<{ success: boolean; error?: string }> {
-    try {
-      const result = await window.electronAPI.deleteBodyMeasurement(id);
-      return result;
-    } catch (error) {
-      console.error('Delete body measurement error:', error);
-      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
-    }
-  }
-
-  static async getMonthlyTransactionReport(month: number, year: number): Promise<{ success: boolean; data?: TransactionReportData[]; error?: string }> {
-    try {
-      const result = await window.electronAPI.getMonthlyTransactionReport(month, year);
-      return result;
-    } catch (error) {
-      console.error('Get monthly transaction report error:', error);
-      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
-    }
-  }
-
-  // Body Measurements methods
-  static async createBodyMeasurement(measurementData: any): Promise<{ success: boolean; error?: string }> {
-    try {
-      const result = await window.electronAPI.createBodyMeasurement(measurementData);
-      return result;
-    } catch (error) {
-      console.error('Create body measurement error:', error);
-      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
-    }
-  }
-
-  static async getAllBodyMeasurements(): Promise<any[]> {
-    try {
-      const result = await window.electronAPI.getAllBodyMeasurements();
-      return result.success ? result.data || [] : [];
-    } catch (error) {
-      console.error('Get all body measurements error:', error);
-      return [];
-    }
-  }
-
-  static async getBodyMeasurementsByMember(memberId: string): Promise<any[]> {
-    try {
-      const result = await window.electronAPI.getBodyMeasurementsByMember(memberId);
-      return result.success ? result.data || [] : [];
-    } catch (error) {
-      console.error('Get body measurements by member error:', error);
-      return [];
-    }
-  }
-
-  static async updateBodyMeasurement(id: string, measurementData: unknown): Promise<{ success: boolean; error?: string }> {
-    try {
-      const result = await window.electronAPI.updateBodyMeasurement(id, measurementData);
-      return result;
-    } catch (error) {
-      console.error('Update body measurement error:', error);
-      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
-    }
-  }
-
-  static async deleteBodyMeasurement(id: string): Promise<{ success: boolean; error?: string }> {
-    try {
-      const result = await window.electronAPI.deleteBodyMeasurement(id);
-      return result;
-    } catch (error) {
-      console.error('Delete body measurement error:', error);
-      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
-    }
-  }
 
   // File system operations
   static async saveReceiptPDF(receiptData: Receipt, pdfBuffer: ArrayBuffer): Promise<{ success: boolean; filePath?: string; filename?: string; error?: string }> {
@@ -1437,6 +1712,33 @@ class DatabaseService {
     } catch (error) {
       console.error('Generate invoice number error:', error);
       return `INV${Date.now()}`;
+    }
+  }
+
+  static async generateMemberNumber(): Promise<string> {
+    try {
+      return await window.electronAPI.generateMemberNumber();
+    } catch (error) {
+      console.error('Generate member number error:', error);
+      return Date.now().toString();
+    }
+  }
+
+  static async updateMemberNumber(memberId: string, newMemberNumber: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      return await window.electronAPI.updateMemberNumber(memberId, newMemberNumber);
+    } catch (error) {
+      console.error('Update member number error:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  static async checkMemberNumberAvailable(memberNumber: string, excludeMemberId?: string): Promise<{ available: boolean; error?: string }> {
+    try {
+      return await window.electronAPI.checkMemberNumberAvailable(memberNumber, excludeMemberId);
+    } catch (error) {
+      console.error('Check member number availability error:', error);
+      return { available: false, error: error.message };
     }
   }
 
@@ -1587,6 +1889,7 @@ export const db = {
   // Users
   getAllUsers: DatabaseService.getAllUsers,
   createUser: DatabaseService.createUser,
+  updateUserPassword: DatabaseService.updateUserPassword,
 
   // Members (with camelCase conversion)
   getAllMembers: async (): Promise<LegacyMember[]> => {
@@ -1713,36 +2016,9 @@ export const db = {
         await DatabaseService.createInvoice(invoiceData);
         console.log('Invoice created for member:', memberData.name, 'Amount:', totalPayable);
 
-        // Auto-generate receipt if autoGenerateReceipt is true and fees > 0
-        if (autoGenerateReceipt && totalPayable > 0) {
-          const receiptCreated = await db.createMembershipReceipt({
-            ...convertedData,
-            // Ensure all fee structure data is included
-            registration_fee: registrationFee,
-            package_fee: packageFee,
-            discount: discount,
-            plan_type: convertedData.plan_type,
-            payment_mode: convertedData.payment_mode,
-            mobile_no: convertedData.mobile_no,
-            email: convertedData.email,
-            custom_member_id: convertedData.custom_member_id,
-            subscription_start_date: convertedData.subscription_start_date,
-            subscription_end_date: convertedData.subscription_end_date,
-            // Ensure paid amount is correctly passed for receipt generation
-            paidAmount: memberData.paidAmount || 0,
-            paid_amount: memberData.paidAmount || 0,
-          }, 'System');
-
-          if (receiptCreated) {
-            console.log('✅ Membership receipt auto-generated for member:', memberData.name, 'with paid amount:', memberData.paidAmount);
-
-            // Sync member totals after receipt creation
-            await db.syncMemberReceiptData(id);
-            console.log('✅ Member totals synced after receipt creation');
-          } else {
-            console.error('❌ Failed to create membership receipt for member:', memberData.name);
-          }
-        }
+        // Receipt creation is handled by the database layer (createMember method)
+        // to prevent duplicate receipts. The database layer has proper duplicate checking.
+        console.log('📝 Receipt creation handled by database layer to prevent duplicates');
       } catch (error) {
         console.error('Failed to create invoice or receipt:', error);
         // Don't fail member creation if invoice/receipt generation fails
@@ -1816,6 +2092,12 @@ export const db = {
 
   deleteMember: DatabaseService.deleteMember,
 
+  // Deleted Members
+  getAllDeletedMembers: DatabaseService.getAllDeletedMembers,
+  getDeletedMemberById: DatabaseService.getDeletedMemberById,
+  restoreDeletedMember: DatabaseService.restoreDeletedMember,
+  permanentlyDeleteMember: DatabaseService.permanentlyDeleteMember,
+
   //Attendance
   getAllAttendance: async (): Promise<LegacyAttendance[]> => {
     const records = await DatabaseService.getAllAttendance();
@@ -1843,11 +2125,18 @@ export const db = {
 
   checkIn: async (memberId: string, memberName: string, profileImage?: string): Promise<boolean> => {
     const id = await DatabaseService.generateId();
+    
+    // Get member data to fetch custom_member_id
+    const member = await db.getMemberById(memberId);
+    const customMemberId = member?.customMemberId || null;
+    
     const attendanceData = {
       id,
       member_id: memberId,
+      custom_member_id: customMemberId,
       member_name: memberName,
       check_in: new Date().toISOString(),
+      check_out: null, // Initially null
       date: formatDateForDatabase(new Date()), // YYYY-MM-DD format
       profile_image: profileImage || null,
     };
@@ -2059,6 +2348,16 @@ export const db = {
       return [];
     }
   },
+
+  getMemberReceiptHistory: async (memberId: string): Promise<Receipt[]> => {
+    try {
+      const receipts = await DatabaseService.getMemberReceiptHistory(memberId);
+      return receipts;
+    } catch (error) {
+      console.error('Get member receipt history error:', error);
+      return [];
+    }
+  },
   createReceipt: async (receiptData: Omit<Receipt, 'id'>): Promise<boolean> => {
     const id = await DatabaseService.generateId();
     const receiptWithId = {
@@ -2103,6 +2402,9 @@ export const db = {
     return typeof result === 'boolean' ? result : !!result;
   },
   updateReceipt: DatabaseService.updateReceipt,
+  createMemberUpdateReceipt: DatabaseService.createMemberUpdateReceipt,
+  createReceiptVersion: DatabaseService.createReceiptVersion,
+  getReceiptHistory: DatabaseService.getReceiptHistory,
   deleteReceipt: DatabaseService.deleteReceipt,
 
   // Sync member and receipt data
@@ -2144,6 +2446,14 @@ export const db = {
 
   payMemberDueAmount: async (memberId: string, paymentAmount: number, paymentType: string = 'cash', createdBy: string = 'System'): Promise<unknown> => {
     return await DatabaseService.payMemberDueAmount(memberId, paymentAmount, paymentType, createdBy);
+  },
+
+  findMemberByMobile: async (mobileNumber: string): Promise<unknown> => {
+    return await DatabaseService.findMemberByMobile(mobileNumber);
+  },
+
+  getMemberPaymentHistory: async (memberId: string): Promise<unknown> => {
+    return await DatabaseService.getMemberPaymentHistory(memberId);
   },
 
   updateInvoicePayment: async (invoiceId: string, paidAmount: number): Promise<boolean> => {
@@ -2528,14 +2838,55 @@ export const db = {
   getMonthlyTransactionReport: DatabaseService.getMonthlyTransactionReport,
 
   // Body Measurements
-  createBodyMeasurement: DatabaseService.createBodyMeasurement,
-  getAllBodyMeasurements: DatabaseService.getAllBodyMeasurements,
-  getBodyMeasurementsByMember: DatabaseService.getBodyMeasurementsByMember,
-  updateBodyMeasurement: DatabaseService.updateBodyMeasurement,
-  deleteBodyMeasurement: DatabaseService.deleteBodyMeasurement,
+  createBodyMeasurement: async (measurementData: BodyMeasurement): Promise<{ success: boolean; error?: string; data?: BodyMeasurement }> => {
+    try {
+      const result = await window.electronAPI.createBodyMeasurement(measurementData);
+      return result as { success: boolean; error?: string; data?: BodyMeasurement };
+    } catch (error) {
+      console.error('Create body measurement error:', error);
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  },
+  getAllBodyMeasurements: async (): Promise<BodyMeasurement[]> => {
+    try {
+      const result = await window.electronAPI.getAllBodyMeasurements() as { success: boolean; data: BodyMeasurement[]; error?: string };
+      return result.success ? result.data : [];
+    } catch (error) {
+      console.error('Get all body measurements error:', error);
+      return [];
+    }
+  },
+  getBodyMeasurementsByMember: async (memberId: string): Promise<BodyMeasurement[]> => {
+    try {
+      const result = await window.electronAPI.getBodyMeasurementsByMember(memberId) as { success: boolean; data: BodyMeasurement[]; error?: string };
+      return result.success ? result.data : [];
+    } catch (error) {
+      console.error('Get body measurements by member error:', error);
+      return [];
+    }
+  },
+  updateBodyMeasurement: async (id: string, measurementData: Partial<BodyMeasurement>): Promise<{ success: boolean; error?: string; data?: BodyMeasurement }> => {
+    try {
+      const result = await window.electronAPI.updateBodyMeasurement(id, measurementData) as { success: boolean; error?: string; data?: BodyMeasurement };
+      return result;
+    } catch (error) {
+      console.error('Update body measurement error:', error);
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  },
+  deleteBodyMeasurement: async (id: string): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const result = await window.electronAPI.deleteBodyMeasurement(id) as { success: boolean; error?: string };
+      return result;
+    } catch (error) {
+      console.error('Delete body measurement error:', error);
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  },
 
   // WhatsApp Automation
   getAllWhatsAppMessages: DatabaseService.getAllWhatsAppMessages,
+  getPendingWhatsAppMessages: DatabaseService.getPendingWhatsAppMessages,
   retryWhatsAppMessage: DatabaseService.retryWhatsAppMessage,
   triggerBirthdayMessages: DatabaseService.triggerBirthdayMessages,
   triggerExpiryReminders: DatabaseService.triggerExpiryReminders,
@@ -2574,6 +2925,9 @@ export const db = {
   generateId: DatabaseService.generateId,
   generateReceiptNumber: DatabaseService.generateReceiptNumber,
   generateInvoiceNumber: DatabaseService.generateInvoiceNumber,
+  generateMemberNumber: DatabaseService.generateMemberNumber,
+  updateMemberNumber: DatabaseService.updateMemberNumber,
+  checkMemberNumberAvailable: DatabaseService.checkMemberNumberAvailable,
 
 
 
@@ -2631,11 +2985,11 @@ export const db = {
   refreshAllMemberDueAmounts: async (): Promise<boolean> => {
     try {
       console.log('🔄 Refreshing all member due amounts...');
-      
+
       // Get all members and recalculate their totals
       const members = await db.getAllMembers();
       console.log(`🔄 Found ${members.length} members to refresh`);
-      
+
       for (const member of members) {
         try {
           await db.syncMemberReceiptData(member.id);
@@ -2710,35 +3064,35 @@ export const db = {
       // Get member from the list (as returned by getAllMembersWithDueAmounts)
       const allMembers = await db.getAllMembersWithDueAmounts();
       const memberFromList = allMembers.find(m => m.id === memberId);
-      
+
       // Get due amount via direct call
       const directDue = await db.getMemberDueAmount(memberId);
-      
+
       // Get receipts and calculate manually
       const receipts = await db.getReceiptsByMemberId(memberId);
-      const totalPaidFromReceipts = receipts.reduce((sum, receipt) => 
+      const totalPaidFromReceipts = receipts.reduce((sum, receipt) =>
         sum + (receipt.amount_paid || receipt.amount || 0), 0);
-      const totalDueFromReceipts = receipts.reduce((sum, receipt) => 
+      const totalDueFromReceipts = receipts.reduce((sum, receipt) =>
         sum + (receipt.due_amount || 0), 0);
-      
+
       const memberListDue = memberFromList ? (memberFromList.dueAmount || memberFromList.due_amount || 0) : 0;
       const directCallDue = directDue.dueAmount;
-      
+
       const memberFeeStructure = memberFromList ? {
         registrationFee: memberFromList.registrationFee || 0,
         packageFee: memberFromList.packageFee || 0,
         discount: memberFromList.discount || 0,
         totalFees: (memberFromList.registrationFee || 0) + (memberFromList.packageFee || 0) - (memberFromList.discount || 0)
       } : { registrationFee: 0, packageFee: 0, discount: 0, totalFees: 0 };
-      
+
       const receiptsCalculation = {
         totalPaid: totalPaidFromReceipts,
         totalDue: totalDueFromReceipts,
         totalAmount: totalPaidFromReceipts + totalDueFromReceipts
       };
-      
+
       const isConsistent = memberListDue === directCallDue;
-      
+
       return {
         isConsistent,
         memberListDue,
@@ -2758,6 +3112,295 @@ export const db = {
     }
   },
 
+  // Master Settings methods
+  masterPackagesGetAll: async () => {
+    try {
+      return await window.electronAPI.masterPackagesGetAll();
+    } catch (error) {
+      console.error('Get all packages error:', error);
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  },
+
+  masterPackagesCreate: async (packageData: any) => {
+    try {
+      return await window.electronAPI.masterPackagesCreate(packageData);
+    } catch (error) {
+      console.error('Create package error:', error);
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  },
+
+  masterPackagesUpdate: async (id: number, packageData: any) => {
+    try {
+      return await window.electronAPI.masterPackagesUpdate(id, packageData);
+    } catch (error) {
+      console.error('Update package error:', error);
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  },
+
+  masterPackagesDelete: async (id: number) => {
+    try {
+      return await window.electronAPI.masterPackagesDelete(id);
+    } catch (error) {
+      console.error('Delete package error:', error);
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  },
+
+  masterTaxSettingsGetAll: async () => {
+    try {
+      const result = await window.electronAPI.masterTaxSettingsGetAll();
+      if (result.success && result.data) {
+        // Convert database 'percentage' field to frontend 'rate' field
+        const convertedData = result.data.map((tax: any) => ({
+          ...tax,
+          rate: tax.percentage || 0  // Map percentage to rate for frontend
+        }));
+        return { ...result, data: convertedData };
+      }
+      return result;
+    } catch (error) {
+      console.error('Get all tax settings error:', error);
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  },
+
+  masterTaxSettingsCreate: async (taxData: any) => {
+    try {
+      // Convert frontend 'rate' field to database 'percentage' field
+      const dbTaxData = {
+        ...taxData,
+        percentage: taxData.rate || 0,  // Map rate to percentage for database
+      };
+      delete dbTaxData.rate;  // Remove rate field to avoid confusion
+      return await window.electronAPI.masterTaxSettingsCreate(dbTaxData);
+    } catch (error) {
+      console.error('Create tax setting error:', error);
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  },
+
+  masterTaxSettingsUpdate: async (id: number, taxData: any) => {
+    try {
+      // Convert frontend 'rate' field to database 'percentage' field if 'rate' exists
+      const dbTaxData = { ...taxData };
+      if (taxData.rate !== undefined) {
+        dbTaxData.percentage = taxData.rate;
+        delete dbTaxData.rate;  // Remove rate field to avoid confusion
+      }
+      return await window.electronAPI.masterTaxSettingsUpdate(id, dbTaxData);
+    } catch (error) {
+      console.error('Update tax setting error:', error);
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  },
+
+  masterTaxSettingsDelete: async (id: number) => {
+    try {
+      return await window.electronAPI.masterTaxSettingsDelete(id);
+    } catch (error) {
+      console.error('Delete tax setting error:', error);
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  },
+
+  masterExpenseCategoriesGetAll: async () => {
+    try {
+      return await window.electronAPI.masterExpenseCategoriesGetAll();
+    } catch (error) {
+      console.error('Get all expense categories error:', error);
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  },
+
+  masterExpenseCategoriesCreate: async (categoryData: any) => {
+    try {
+      return await window.electronAPI.masterExpenseCategoriesCreate(categoryData);
+    } catch (error) {
+      console.error('Create expense category error:', error);
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  },
+
+  masterExpenseCategoriesUpdate: async (id: number, categoryData: any) => {
+    try {
+      return await window.electronAPI.masterExpenseCategoriesUpdate(id, categoryData);
+    } catch (error) {
+      console.error('Update expense category error:', error);
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  },
+
+  masterExpenseCategoriesDelete: async (id: number) => {
+    try {
+      return await window.electronAPI.masterExpenseCategoriesDelete(id);
+    } catch (error) {
+      console.error('Delete expense category error:', error);
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  },
+
+  masterOccupationsGetAll: async () => {
+    try {
+      return await window.electronAPI.masterOccupationsGetAll();
+    } catch (error) {
+      console.error('Get all occupations error:', error);
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  },
+
+  masterOccupationsCreate: async (occupationData: any) => {
+    try {
+      return await window.electronAPI.masterOccupationsCreate(occupationData);
+    } catch (error) {
+      console.error('Create occupation error:', error);
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  },
+
+  masterOccupationsUpdate: async (id: number, occupationData: any) => {
+    try {
+      return await window.electronAPI.masterOccupationsUpdate(id, occupationData);
+    } catch (error) {
+      console.error('Update occupation error:', error);
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  },
+
+  masterOccupationsDelete: async (id: number) => {
+    try {
+      return await window.electronAPI.masterOccupationsDelete(id);
+    } catch (error) {
+      console.error('Delete occupation error:', error);
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  },
+
+  masterPaymentTypesGetAll: async () => {
+    try {
+      return await window.electronAPI.masterPaymentTypesGetAll();
+    } catch (error) {
+      console.error('Get all payment types error:', error);
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  },
+
+  masterPaymentTypesCreate: async (paymentData: any) => {
+    try {
+      return await window.electronAPI.masterPaymentTypesCreate(paymentData);
+    } catch (error) {
+      console.error('Create payment type error:', error);
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  },
+
+  masterPaymentTypesUpdate: async (id: number, paymentData: any) => {
+    try {
+      return await window.electronAPI.masterPaymentTypesUpdate(id, paymentData);
+    } catch (error) {
+      console.error('Update payment type error:', error);
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  },
+
+  masterPaymentTypesDelete: async (id: number) => {
+    try {
+      return await window.electronAPI.masterPaymentTypesDelete(id);
+    } catch (error) {
+      console.error('Delete payment type error:', error);
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  },
+
+  masterBodyMeasurementFieldsGetAll: async () => {
+    try {
+      return await window.electronAPI.masterBodyMeasurementFieldsGetAll();
+    } catch (error) {
+      console.error('Get all body measurement fields error:', error);
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  },
+
+  masterBodyMeasurementFieldsCreate: async (fieldData: any) => {
+    try {
+      return await window.electronAPI.masterBodyMeasurementFieldsCreate(fieldData);
+    } catch (error) {
+      console.error('Create body measurement field error:', error);
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  },
+
+  masterBodyMeasurementFieldsUpdate: async (id: number, fieldData: unknown) => {
+    try {
+      return await window.electronAPI.masterBodyMeasurementFieldsUpdate(id, fieldData);
+    } catch (error) {
+      console.error('Update body measurement field error:', error);
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  },
+
+  masterBodyMeasurementFieldsDelete: async (id: number) => {
+    try {
+      return await window.electronAPI.masterBodyMeasurementFieldsDelete(id);
+    } catch (error) {
+      console.error('Delete body measurement field error:', error);
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  },
+
+  // Partial Member Methods
+  savePartialMember: async (partialData: unknown): Promise<{ success: boolean; data?: unknown; error?: string }> => {
+    try {
+      console.log('🔵 FRONTEND DB: Saving partial member:', partialData);
+      console.log('🔵 FRONTEND DB: Calling window.electronAPI.savePartialMember...');
+
+      const result = await window.electronAPI.savePartialMember(partialData);
+
+      console.log('🔵 FRONTEND DB: Received result from IPC:', result);
+      return result;
+    } catch (error) {
+      console.error('🔴 FRONTEND DB: Save partial member error:', error);
+      return { success: false, error: error.message };
+    }
+  },
+
+  isPartialMember: async (memberId: string): Promise<boolean> => {
+    try {
+      console.log('Frontend: Checking if member is partial:', memberId);
+      const result = await window.electronAPI.isPartialMember(memberId);
+      console.log('Frontend: Is partial member result:', result);
+      return result.success ? result.data || false : false;
+    } catch (error) {
+      console.error('Frontend: Check partial member error:', error);
+      return false;
+    }
+  },
+
+  completePartialMember: async (memberId: string, membershipData: unknown): Promise<{ success: boolean; data?: unknown; error?: string }> => {
+    try {
+      console.log('Frontend: Completing partial member:', memberId, membershipData);
+      const result = await window.electronAPI.completePartialMember(memberId, membershipData);
+      console.log('Frontend: Complete partial member result:', result);
+      return result;
+    } catch (error) {
+      console.error('Frontend: Complete partial member error:', error);
+      return { success: false, error: error.message };
+    }
+  },
+
+  getPartialMembers: async (): Promise<unknown[]> => {
+    try {
+      console.log('Frontend: Getting partial members');
+      const result = await window.electronAPI.getPartialMembers();
+      console.log('Frontend: Get partial members result:', result);
+      return result.success ? result.data || [] : [];
+    } catch (error) {
+      console.error('Frontend: Get partial members error:', error);
+      return [];
+    }
+  },
 
 };
 

@@ -1,0 +1,30 @@
+{
+  "total_prepares": 270,
+  "tables_detected": [
+    "sqlite_master",
+    "master_packages",
+    "users",
+    "misc",
+    "whatsapp_templates",
+    "members",
+    "receipts",
+    "invoices",
+    "attendance",
+    "body_measurements",
+    "deleted_members",
+    "staff_salaries",
+    "enquiries",
+    "staff_attendance",
+    "staff",
+    "settings",
+    "whatsapp_messages",
+    "expenses",
+    "master_tax_settings",
+    "master_expense_categories",
+    "master_occupations",
+    "master_payment_types",
+    "master_body_measurement_fields",
+    "receipt_tax_mapping"
+  ],
+  "model_files_created": 25
+}

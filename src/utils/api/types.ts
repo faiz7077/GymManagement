@@ -98,6 +98,20 @@ declare global {
         getAllMembersWithDueAmounts: () => Promise<{ success: boolean; data?: unknown[]; error?: string }>;
         getMemberDueAmount: (memberId: string) => Promise<{ success: boolean; data?: { dueAmount: number; unpaidInvoices: number }; error?: string }>;
         
+        // WhatsApp Automation
+        getAllWhatsAppMessages: () => Promise<{ success: boolean; data?: any[]; error?: string }>;
+        getPendingWhatsAppMessages: () => Promise<{ success: boolean; data?: any[]; error?: string }>;
+        retryWhatsAppMessage: (messageId: string) => Promise<{ success: boolean; error?: string }>;
+        triggerBirthdayMessages: () => Promise<{ success: boolean; data?: number; error?: string }>;
+        getTodaysBirthdayMembers: () => Promise<{ success: boolean; data?: any[]; error?: string }>;
+        triggerExpiryReminders: () => Promise<{ success: boolean; data?: number; error?: string }>;
+        triggerAttendanceReminders: () => Promise<{ success: boolean; data?: number; error?: string }>;
+        processPendingWhatsAppMessages: () => Promise<{ success: boolean; data?: number; error?: string }>;
+        sendWhatsAppMessage: (messageData: { phone: string; message: string; memberName: string }) => Promise<{ success: boolean; error?: string }>;
+        updateWhatsAppMessageStatus: (messageId: string, status: string, sentAt?: string, errorMessage?: string) => Promise<{ success: boolean; error?: string }>;
+        updateWhatsAppTemplate: (messageType: string, templateContent: string) => Promise<{ success: boolean; error?: string }>;
+        createWhatsAppMessage: (messageData: any) => Promise<{ success: boolean; error?: string }>;
+        
       };
     }
   }

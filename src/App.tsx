@@ -8,6 +8,7 @@ import { LoginForm } from "@/components/auth/LoginForm";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Dashboard } from "@/pages/Dashboard";
 import { Members } from "@/pages/Members";
+import { DeletedMembers } from "@/pages/DeletedMembers";
 import { Enquiries } from "@/pages/Enquiries";
 import { BodyMeasurements } from "@/pages/BodyMeasurements";
 import { Staff } from "@/pages/Staff";
@@ -15,9 +16,13 @@ import { Receipts } from "@/pages/Receipts";
 import { StaffSalary } from "@/pages/StaffSalary";
 import { Expenses } from "@/pages/Expenses";
 import { Reports } from "@/pages/Reports";
+import { Charts } from "@/pages/Charts";
 import MonthlyTransactionReport from "@/pages/MonthlyTransactionReport";
 import { WhatsAppAutomation } from "@/pages/WhatsAppAutomation";
 import { WhatsAppSettings } from "@/pages/WhatsAppSettings";
+import { Settings } from "@/pages/Settings";
+import { MasterSettings } from "@/pages/MasterSettings";
+import { DuePayments } from "@/pages/DuePayments";
 import NotFound from "./pages/NotFound";
 import { AttendancePage } from "./pages/Attendancee";
 import { StaffAttendancePage } from "./pages/StaffAttendance";
@@ -54,8 +59,10 @@ const AppRoutes = () => (
       <Route index element={<Navigate to="/dashboard" replace />} />
       <Route path="dashboard" element={<Dashboard />} />
       <Route path="members" element={<Members />} />
+      <Route path="deleted-members" element={<DeletedMembers />} />
       <Route path="enquiries" element={<Enquiries />} />
       <Route path="receipts" element={<Receipts />} />
+      <Route path="due-payments" element={<DuePayments />} />
       <Route path="attendance" element={<AttendancePage/>}/>
       <Route path="staff-attendance" element={<StaffAttendancePage />} />
       <Route path="measurements" element={<BodyMeasurements />} />
@@ -63,9 +70,12 @@ const AppRoutes = () => (
       <Route path="salary" element={<StaffSalary />} />
       <Route path="expenses" element={<Expenses />} />
       <Route path="reports" element={<Reports />} />
+      <Route path="charts" element={<Charts />} />
       <Route path="monthly-report" element={<MonthlyTransactionReport />} />
       <Route path="whatsapp" element={<WhatsAppAutomation />} />
       <Route path="whatsapp-settings" element={<WhatsAppSettings />} />
+      <Route path="settings" element={<Settings />} />
+      <Route path="master-settings" element={<MasterSettings />} />
       {/* More routes will be added here */}
     </Route>
     

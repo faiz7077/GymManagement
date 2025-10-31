@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { SidebarTrigger, useSidebar } from '@/components/ui/sidebar';
 import { Download, Calendar } from 'lucide-react';
 import { db } from '@/utils/database';
 import { toast } from 'sonner';
@@ -24,6 +25,7 @@ const MonthlyTransactionReport: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [totalAmount, setTotalAmount] = useState(0);
   const isLoadingRef = useRef(false);
+  const { state: sidebarState } = useSidebar();
 
   const months = useMemo(() => [
     { value: 1, label: 'January' },
@@ -118,6 +120,7 @@ const MonthlyTransactionReport: React.FC = () => {
     <div className="container mx-auto p-6 space-y-6">
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-2">
+          {sidebarState === 'collapsed' && <SidebarTrigger />}
           <Calendar className="h-6 w-6" />
           <h1 className="text-2xl font-bold">Monthly Transaction Report</h1>
         </div>

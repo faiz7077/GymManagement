@@ -41,13 +41,20 @@ interface BodyMeasurementFormProps {
   onCancel: () => void;
   initialData?: any;
   isEdit?: boolean;
+  prefilledMember?: {
+    id: string;
+    name: string;
+    height?: number;
+    weight?: number;
+  };
 }
 
 export const BodyMeasurementForm: React.FC<BodyMeasurementFormProps> = ({ 
   onSubmit, 
   onCancel, 
   initialData,
-  isEdit = false 
+  isEdit = false,
+  prefilledMember
 }) => {
   const [members, setMembers] = useState<LegacyMember[]>([]);
   const [selectedMember, setSelectedMember] = useState<LegacyMember | null>(null);
@@ -81,6 +88,11 @@ export const BodyMeasurementForm: React.FC<BodyMeasurementFormProps> = ({
       fatPercentage: initialData.fat_percentage,
       vf: initialData.vf,
       notes: initialData.notes,
+    } : prefilledMember ? {
+      memberId: prefilledMember.id,
+      measurementDate: new Date().toISOString().split('T')[0],
+      weight: prefilledMember.weight || undefined,
+      height: prefilledMember.height || undefined,
     } : {
       measurementDate: new Date().toISOString().split('T')[0]
     }

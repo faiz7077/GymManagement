@@ -9,11 +9,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Receipt, LegacyMember, db } from '@/utils/database';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
+import { useTaxSelection } from '@/hooks/useTaxSelection';
 import { CalendarDays, AlertTriangle, CheckCircle, Clock } from 'lucide-react';
+import { Checkbox } from '../ui/checkbox';
 
 const receiptSchema = z.object({
   member_id: z.string().min(1, 'Please select a member'),
@@ -31,6 +34,9 @@ const receiptSchema = z.object({
   registration_fee: z.number().min(0, 'Registration fee must be positive').optional(),
   package_fee: z.number().min(0.01, 'Package fee is required and must be greater than 0'),
   discount: z.number().min(0, 'Discount must be positive').optional(),
+  // Tax fields
+  cgst: z.number().min(0, 'CGST must be positive').optional(),
+  sgst: z.number().min(0, 'SGST must be positive').optional(),
   // Display fields
   payment_mode: z.string().optional(),
   mobile_no: z.string().optional(),
@@ -44,6 +50,13 @@ interface ReceiptFormProps {
   initialData?: Receipt;
   onSubmit: (data: Omit<Receipt, 'id'> | Partial<Receipt>) => void;
   onMemberUpdate?: (memberId: string) => void; // Callback when member data is updated
+  prefilledMember?: {
+    id: string;
+    name: string;
+    mobile?: string;
+    email?: string;
+    customMemberId?: string;
+  };
 }
 
 // Plan configuration (no predefined pricing)
@@ -55,12 +68,66 @@ const PLAN_CONFIG = {
 };
 
 // Helper function to calculate subscription end date
-const calculateEndDate = (startDate: string, planType: keyof typeof PLAN_CONFIG): string => {
+const calculateEndDate = (startDate: string, planType: string, masterPackages: Record<string, any>[] = []): string => {
   const start = new Date(startDate);
-  const duration = PLAN_CONFIG[planType].duration;
+  let duration = 1; // Default to 1 month
+  let foundPackage = null;
+
+  console.log('=== calculateEndDate called ===');
+  console.log('startDate:', startDate);
+  console.log('planType:', planType);
+  console.log('masterPackages count:', masterPackages.length);
+  console.log('masterPackages:', masterPackages.map(pkg => ({
+    id: pkg.id,
+    name: pkg.name,
+    duration_type: pkg.duration_type,
+    duration_months: pkg.duration_months
+  })));
+
+  // First, try to find duration in master packages
+  if (masterPackages.length > 0) {
+    foundPackage = masterPackages.find(pkg => {
+      const nameMatch = pkg.name?.toLowerCase() === planType.toLowerCase();
+      const durationTypeMatch = pkg.duration_type?.toLowerCase() === planType.toLowerCase();
+      const idMatch = pkg.id?.toString() === planType;
+      
+      console.log('Checking package:', {
+        pkgId: pkg.id,
+        pkgName: pkg.name,
+        pkgDurationType: pkg.duration_type,
+        pkgDurationMonths: pkg.duration_months,
+        searchPlanType: planType,
+        nameMatch,
+        durationTypeMatch,
+        idMatch
+      });
+      
+      return nameMatch || durationTypeMatch || idMatch;
+    });
+
+    if (foundPackage && foundPackage.duration_months) {
+      duration = parseInt(foundPackage.duration_months, 10) || 1;
+      console.log('✓ Found matching package:', foundPackage.name || foundPackage.duration_type);
+      console.log('✓ Using master package duration:', duration, 'months');
+    } else {
+      console.log('✗ No matching package found in master packages');
+    }
+  }
+
+  // Fallback to PLAN_CONFIG if no master package found
+  if (!foundPackage && PLAN_CONFIG[planType as keyof typeof PLAN_CONFIG]) {
+    duration = PLAN_CONFIG[planType as keyof typeof PLAN_CONFIG].duration;
+    console.log('→ Using fallback PLAN_CONFIG duration:', duration, 'months');
+  } else if (!foundPackage) {
+    console.log('→ No duration found anywhere, using default:', duration, 'month');
+  }
+
   const endDate = new Date(start);
   endDate.setMonth(endDate.getMonth() + duration);
-  return endDate.toISOString().split('T')[0];
+  const calculatedEndDate = endDate.toISOString().split('T')[0];
+  
+  console.log('=== Final calculated end date:', calculatedEndDate, '===');
+  return calculatedEndDate;
 };
 
 // Helper function to check if membership is expired
@@ -78,7 +145,7 @@ const isMembershipExpiringSoon = (endDate: string): boolean => {
   return daysUntilExpiry <= 7 && daysUntilExpiry > 0;
 };
 
-export const ReceiptForm: React.FC<ReceiptFormProps> = ({ initialData, onSubmit, onMemberUpdate }) => {
+export const ReceiptForm: React.FC<ReceiptFormProps> = ({ initialData, onSubmit, onMemberUpdate, prefilledMember }) => {
   const [members, setMembers] = useState<LegacyMember[]>([]);
   const [filteredMembers, setFilteredMembers] = useState<LegacyMember[]>([]);
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -88,6 +155,9 @@ export const ReceiptForm: React.FC<ReceiptFormProps> = ({ initialData, onSubmit,
   const [selectedMember, setSelectedMember] = useState<LegacyMember | null>(null);
   const [membershipStatus, setMembershipStatus] = useState<'active' | 'expired' | 'expiring_soon' | null>(null);
   const [highlightedIndex, setHighlightedIndex] = useState<number>(-1);
+  const [taxSettings, setTaxSettings] = useState<any[]>([]);
+  const [masterPackages, setMasterPackages] = useState<any[]>([]);
+  const [masterPaymentTypes, setMasterPaymentTypes] = useState<unknown[]>([]);
   const { toast } = useToast();
   const { user } = useAuth();
 
@@ -117,6 +187,23 @@ export const ReceiptForm: React.FC<ReceiptFormProps> = ({ initialData, onSubmit,
       custom_member_id: initialData.custom_member_id || '',
       subscription_start_date: initialData.subscription_start_date || new Date().toISOString().split('T')[0],
       subscription_end_date: initialData.subscription_end_date || '',
+    } : prefilledMember ? {
+      member_id: prefilledMember.id,
+      member_name: prefilledMember.name,
+      mobile_no: prefilledMember.mobile || '',
+      email: prefilledMember.email || '',
+      custom_member_id: prefilledMember.customMemberId || '',
+      payment_type: 'cash',
+      transaction_type: 'payment',
+      selected_plan_type: 'monthly',
+      amount: 0,
+      amount_paid: 0,
+      registration_fee: 0,
+      package_fee: undefined,
+      discount: 0,
+      cgst: 0,
+      sgst: 0,
+      subscription_start_date: new Date().toISOString().split('T')[0],
     } : {
       payment_type: 'cash',
       transaction_type: 'payment',
@@ -126,6 +213,8 @@ export const ReceiptForm: React.FC<ReceiptFormProps> = ({ initialData, onSubmit,
       registration_fee: 0,
       package_fee: undefined, // No default package fee - must be entered manually
       discount: 0,
+      cgst: 0,
+      sgst: 0,
       subscription_start_date: new Date().toISOString().split('T')[0],
       subscription_end_date: '',
     }
@@ -139,6 +228,77 @@ export const ReceiptForm: React.FC<ReceiptFormProps> = ({ initialData, onSubmit,
   const discount = watch('discount');
   const amount = watch('amount');
   const amountPaid = watch('amount_paid');
+
+  // Enhanced tax selection hook
+  const baseAmount = (registrationFee || 0) + (packageFee || 0) - (discount || 0);
+  const {
+    selectedTaxes,
+    taxType,
+    filteredTaxes,
+    calculationResult,
+    toggleTax,
+    clearAllTaxes,
+    setTaxSelection,
+    isTaxSelectable,
+    getTaxTypeLabel
+  } = useTaxSelection({
+    taxes: taxSettings,
+    baseAmount,
+    onTaxChange: (result) => {
+      // Update form amount when tax calculation changes
+      setValue('amount', result.totalAmount);
+      if (!amountPaid || amountPaid === 0) {
+        setValue('amount_paid', result.totalAmount);
+      }
+    }
+  });
+
+  // Load tax settings from master settings
+  const loadTaxSettings = async () => {
+    try {
+      const result = await db.masterTaxSettingsGetAll();
+      if (result.success && result.data) {
+        const activeTaxes = result.data.filter(tax => tax.is_active);
+        setTaxSettings(activeTaxes);
+      } else {
+        console.error('Failed to load tax settings:', result.error);
+      }
+    } catch (error) {
+      console.error('Error loading tax settings:', error);
+    }
+  };
+
+  // Load master packages from master settings
+  const loadMasterPackages = async () => {
+    try {
+      const result = await db.masterPackagesGetAll();
+      if (result.success && result.data) {
+        const activePackages = result.data.filter(pkg => pkg.is_active !== false); // Include packages that don't have is_active field or are explicitly active
+        setMasterPackages(activePackages);
+        console.log('Master packages loaded:', activePackages);
+      } else {
+        console.error('Failed to load master packages:', result.error);
+      }
+    } catch (error) {
+      console.error('Error loading master packages:', error);
+    }
+  };
+
+  // Load master payment types from master settings
+  const loadMasterPaymentTypes = async () => {
+    try {
+      const result = await db.masterPaymentTypesGetAll();
+      if (result.success && result.data) {
+        const activePaymentTypes = result.data.filter(pt => pt.is_active !== false); // Include payment types that don't have is_active field or are explicitly active
+        setMasterPaymentTypes(activePaymentTypes);
+        console.log('Master payment types loaded:', activePaymentTypes);
+      } else {
+        console.error('Failed to load master payment types:', result.error);
+      }
+    } catch (error) {
+      console.error('Error loading master payment types:', error);
+    }
+  };
 
   useEffect(() => {
     const loadMembers = async () => {
@@ -171,6 +331,9 @@ export const ReceiptForm: React.FC<ReceiptFormProps> = ({ initialData, onSubmit,
 
     loadMembers();
     generateReceiptNumber();
+    loadTaxSettings();
+    loadMasterPackages();
+    loadMasterPaymentTypes();
   }, [initialData, toast]);
 
   // Filter members based on search query
@@ -256,10 +419,10 @@ export const ReceiptForm: React.FC<ReceiptFormProps> = ({ initialData, onSubmit,
   // Auto-calculate end date when plan type or start date changes
   useEffect(() => {
     if (selectedPlanType && subscriptionStartDate) {
-      const endDate = calculateEndDate(subscriptionStartDate, selectedPlanType as keyof typeof PLAN_CONFIG);
+      const endDate = calculateEndDate(subscriptionStartDate, selectedPlanType, masterPackages);
       setValue('subscription_end_date', endDate);
     }
-  }, [selectedPlanType, subscriptionStartDate, setValue]);
+  }, [selectedPlanType, subscriptionStartDate, setValue, masterPackages]);
 
   // Update description when plan changes (no automatic pricing)
   useEffect(() => {
@@ -278,26 +441,77 @@ export const ReceiptForm: React.FC<ReceiptFormProps> = ({ initialData, onSubmit,
     }
   }, [selectedPlanType, selectedMember, setValue, watch]);
 
-  // Auto-calculate total amount when any fee component changes
+  // Plan selection mapping logic - map selected plan from master settings to package fees and payment methods
   useEffect(() => {
+    if (selectedPlanType && masterPackages.length > 0 && selectedMember) {
+      console.log('Plan selection mapping triggered:', { selectedPlanType, masterPackages });
+      
+      // Find the selected package in master packages
+      const selectedPackage = masterPackages.find(pkg => 
+        pkg.name?.toLowerCase() === selectedPlanType.toLowerCase() ||
+        pkg.duration_type?.toLowerCase() === selectedPlanType.toLowerCase() ||
+        pkg.id?.toString() === selectedPlanType
+      );
 
+      console.log('Found selected package:', selectedPackage);
 
-    const regFee = registrationFee || 0;
-    const pkgFee = packageFee || 0;
-    const disc = discount || 0;
+      if (selectedPackage) {
+        // Map package fee from master settings
+        if (selectedPackage.price && selectedPackage.price > 0) {
+          setValue('package_fee', selectedPackage.price);
+          console.log('Package fee mapped from master settings:', selectedPackage.price);
+        }
 
-    const totalAmount = regFee + pkgFee - disc;
-    const finalAmount = Math.max(0, totalAmount);
+        // Map registration fee if available
+        if (selectedPackage.registration_fee && selectedPackage.registration_fee > 0) {
+          setValue('registration_fee', selectedPackage.registration_fee);
+          console.log('Registration fee mapped from master settings:', selectedPackage.registration_fee);
+        }
 
+        // Map discount if available
+        if (selectedPackage.discount && selectedPackage.discount > 0) {
+          setValue('discount', selectedPackage.discount);
+          console.log('Discount mapped from master settings:', selectedPackage.discount);
+        }
 
+        // Map payment method if available and payment types are loaded
+        if (selectedPackage.payment_method && masterPaymentTypes.length > 0) {
+          // Find the payment method in master payment types
+          const paymentType = masterPaymentTypes.find(pt => 
+            pt && typeof pt === 'object' && (
+              ((pt as any).name?.toLowerCase() === selectedPackage.payment_method.toLowerCase()) ||
+              ((pt as unknown).type?.toLowerCase() === selectedPackage.payment_method.toLowerCase()) ||
+              ((pt as unknown).id?.toString() === selectedPackage.payment_method.toString())
+            )
+          );
 
-    setValue('amount', finalAmount);
-    
-    // Auto-set amount_paid to total amount if not manually changed
-    if (!amountPaid || amountPaid === 0) {
-      setValue('amount_paid', finalAmount);
+          console.log('Found payment type for package:', paymentType);
+
+          if (paymentType && typeof paymentType === 'object') {
+            // Type guard to ensure paymentType is an object with expected properties
+            const typedPaymentType = paymentType as { name?: string; type?: string; id?: string | number };
+            // Map to the appropriate payment type enum value
+            const paymentTypeValue = typedPaymentType.name?.toLowerCase() || typedPaymentType.type?.toLowerCase();
+            
+            if (paymentTypeValue && ['cash', 'card', 'upi', 'bank_transfer'].includes(paymentTypeValue)) {
+              setValue('payment_type', paymentTypeValue as 'cash' | 'card' | 'upi' | 'bank_transfer');
+              console.log('Payment type mapped from master settings:', paymentTypeValue);
+            }
+          }
+        }
+
+        // Show success message
+        toast({
+          title: "Plan Mapped",
+          description: `Package fees and payment method have been automatically mapped from ${selectedPackage.name || selectedPlanType} plan settings.`,
+        });
+      } else {
+        console.log('No matching package found in master settings for:', selectedPlanType);
+      }
     }
-  }, [registrationFee, packageFee, discount, setValue, amountPaid]);
+  }, [selectedPlanType, masterPackages, masterPaymentTypes, selectedMember, setValue, toast]);
+
+
 
   // Handle member selection
   const handleMemberSelect = (memberId: string) => {
@@ -356,6 +570,19 @@ export const ReceiptForm: React.FC<ReceiptFormProps> = ({ initialData, onSubmit,
     }
   };
 
+  // Function to determine receipt tag
+  const getReceiptTag = (transactionType: string, isFirstReceipt: boolean = false) => {
+    if (transactionType === 'renewal') {
+      return 'Renewal';
+    }
+    
+    if (isFirstReceipt || (!initialData && transactionType === 'payment')) {
+      return 'New Membership';
+    }
+    
+    return 'Payment';
+  };
+
   const onFormSubmit = async (data: ReceiptFormData) => {
     setLoading(true);
     try {
@@ -381,6 +608,16 @@ export const ReceiptForm: React.FC<ReceiptFormProps> = ({ initialData, onSubmit,
         transactionType = 'partial_payment';
       }
 
+      // Determine receipt tag
+      const receiptTag = getReceiptTag(transactionType, !initialData);
+      
+      // Use enhanced tax calculation results
+      const selectedTaxData: {[key: string]: number} = {};
+      calculationResult.taxBreakdown.forEach(tax => {
+        selectedTaxData[tax.id] = tax.amount;
+      });
+      const totalSelectedTaxAmount = calculationResult.taxAmount;
+
       // Create receipt data with proper structure
       const receiptData = {
         member_id: data.member_id,
@@ -389,7 +626,7 @@ export const ReceiptForm: React.FC<ReceiptFormProps> = ({ initialData, onSubmit,
         amount_paid: paidAmount, // Amount actually paid
         due_amount: dueAmount, // Remaining amount due
         payment_type: data.payment_type,
-        description: data.description,
+        description: `${receiptTag} - ${data.description}`,
         transaction_type: transactionType,
         receipt_number: receiptNumber,
         receipt_category: 'member' as 'member' | 'staff_salary' | 'staff_bonus' | 'staff_salary_update',
@@ -407,8 +644,16 @@ export const ReceiptForm: React.FC<ReceiptFormProps> = ({ initialData, onSubmit,
         package_fee: data.package_fee || 0,
         registration_fee: data.registration_fee || 0,
         discount: data.discount || 0,
-        cgst: 0,
-        sigst: 0,
+        // Legacy tax fields (for backward compatibility)
+        cgst: data.cgst || 0,
+        sigst: data.sgst || 0,
+        // Enhanced tax information
+        selected_taxes: selectedTaxData,
+        total_tax_amount: totalSelectedTaxAmount,
+        tax_type: taxType,
+        tax_breakdown: calculationResult.taxBreakdown,
+        base_amount_before_tax: calculationResult.baseAmount,
+        tax_settings_used: taxSettings.filter(tax => selectedTaxes[tax.id]),
       };
 
       // Update member's subscription dates and fee structure
@@ -443,7 +688,7 @@ export const ReceiptForm: React.FC<ReceiptFormProps> = ({ initialData, onSubmit,
           // Update the selected member state to reflect changes
           setSelectedMember({
             ...selectedMember,
-            planType: data.selected_plan_type,
+            planType: data.selected_plan_type as 'monthly' | 'quarterly' | 'half_yearly' | 'yearly',
             subscriptionStartDate: data.subscription_start_date,
             subscriptionEndDate: data.subscription_end_date,
             registrationFee: data.registration_fee || 0,
@@ -574,31 +819,39 @@ export const ReceiptForm: React.FC<ReceiptFormProps> = ({ initialData, onSubmit,
                   onClick={() => handleMemberSelect(member.id)}
                   onMouseEnter={() => setHighlightedIndex(index)}
                 >
-                  <div className="flex flex-col">
-                    <div className="flex items-center justify-between">
-                      <span className="font-medium text-gray-900">{member.name}</span>
-                      <div className="flex items-center gap-1">
-                        {member.subscriptionEndDate && isMembershipExpired(member.subscriptionEndDate) && (
-                          <Badge variant="destructive" className="text-xs">Expired</Badge>
-                        )}
-                        {member.subscriptionEndDate && isMembershipExpiringSoon(member.subscriptionEndDate) && (
-                          <Badge variant="secondary" className="text-xs bg-yellow-100 text-yellow-800">Expiring</Badge>
-                        )}
-                        {member.subscriptionEndDate && !isMembershipExpired(member.subscriptionEndDate) && !isMembershipExpiringSoon(member.subscriptionEndDate) && (
-                          <Badge variant="default" className="text-xs bg-green-100 text-green-800">Active</Badge>
-                        )}
+                  <div className="flex items-center space-x-3">
+                    <Avatar className="h-8 w-8">
+                      <AvatarImage src={member.memberImage} className="object-cover" />
+                      <AvatarFallback className="bg-primary/10 text-primary text-xs">
+                        {member.name.split(' ').map(n => n[0]).join('').toUpperCase()}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="flex-1">
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium text-gray-900">{member.name}</span>
+                        <div className="flex items-center gap-1">
+                          {member.subscriptionEndDate && isMembershipExpired(member.subscriptionEndDate) && (
+                            <Badge variant="destructive" className="text-xs">Expired</Badge>
+                          )}
+                          {member.subscriptionEndDate && isMembershipExpiringSoon(member.subscriptionEndDate) && (
+                            <Badge variant="secondary" className="text-xs bg-yellow-100 text-yellow-800">Expiring</Badge>
+                          )}
+                          {member.subscriptionEndDate && !isMembershipExpired(member.subscriptionEndDate) && !isMembershipExpiringSoon(member.subscriptionEndDate) && (
+                            <Badge variant="default" className="text-xs bg-green-100 text-green-800">Active</Badge>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                    <div className="flex items-center gap-4 text-xs text-gray-500 mt-1">
-                      <span>📱 {member.mobileNo}</span>
-                      <span>📋 {member.planType}</span>
-                      <span>🆔 {member.customMemberId || member.id.slice(0, 8)}</span>
-                    </div>
-                    {member.subscriptionEndDate && (
-                      <div className="text-xs text-gray-400 mt-1">
-                        Expires: {member.subscriptionEndDate.split('T')[0]}
+                      <div className="flex items-center gap-4 text-xs text-gray-500 mt-1">
+                        <span>📱 {member.mobileNo}</span>
+                        <span>📋 {member.planType}</span>
+                        <span>🆔 {member.customMemberId || member.id.slice(0, 8)}</span>
                       </div>
-                    )}
+                      {member.subscriptionEndDate && (
+                        <div className="text-xs text-gray-400 mt-1">
+                          Expires: {member.subscriptionEndDate.split('T')[0]}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               ))
@@ -773,20 +1026,64 @@ export const ReceiptForm: React.FC<ReceiptFormProps> = ({ initialData, onSubmit,
                     <SelectValue placeholder="Choose membership plan" />
                   </SelectTrigger>
                   <SelectContent>
-                    {Object.entries(PLAN_CONFIG).map(([key, plan]) => (
-                      <SelectItem key={key} value={key}>
-                        <div className="flex flex-col">
-                          <span className="font-medium">{plan.label}</span>
-                          <span className="text-xs text-muted-foreground">
-                            {plan.duration} month{plan.duration > 1 ? 's' : ''} duration
-                          </span>
-                        </div>
-                      </SelectItem>
-                    ))}
+                    {/* Show Master Packages if available */}
+                    {masterPackages.length > 0 ? (
+                      masterPackages.map((pkg, index) => {
+                        // Generate a unique key using multiple fallbacks
+                        const uniqueKey = pkg.id || pkg.name || `package-${index}`;
+                        // Ensure value is never null
+                        const uniqueValue = pkg.name || pkg.duration_type || pkg.id?.toString() || `package-${index}`;
+                        
+                        return (
+                          <SelectItem key={uniqueKey} value={uniqueValue}>
+                            <div className="flex flex-col">
+                              <span className="font-medium">{pkg.name || pkg.duration_type || 'Unnamed Plan'}</span>
+                              <div className="text-xs text-muted-foreground flex gap-2">
+                                {pkg.duration_months && (
+                                  <span>{pkg.duration_months} month{pkg.duration_months > 1 ? 's' : ''}</span>
+                                )}
+                                {pkg.price && (
+                                  <span>₹{pkg.price}</span>
+                                )}
+                                {pkg.description && (
+                                  <span>{pkg.description}</span>
+                                )}
+                              </div>
+                            </div>
+                          </SelectItem>
+                        );
+                      })
+                    ) : (
+                      /* Fallback to hardcoded PLAN_CONFIG if no master packages */
+                      Object.entries(PLAN_CONFIG).map(([key, plan]) => (
+                        <SelectItem key={key} value={key}>
+                          <div className="flex flex-col">
+                            <span className="font-medium">{plan.label}</span>
+                            <span className="text-xs text-muted-foreground">
+                              {plan.duration} month{plan.duration > 1 ? 's' : ''} duration
+                            </span>
+                          </div>
+                        </SelectItem>
+                      ))
+                    )}
                   </SelectContent>
                 </Select>
                 {errors.selected_plan_type && (
                   <p className="text-sm text-destructive">{errors.selected_plan_type.message}</p>
+                )}
+                
+                {/* Show master packages info */}
+                {masterPackages.length > 0 && (
+                  <div className="text-xs text-blue-600 bg-blue-50 p-2 rounded border border-blue-200">
+                    💡 Plans loaded from Master Settings ({masterPackages.length} available). Selecting a plan will automatically map fees and payment methods.
+                  </div>
+                )}
+                
+                {/* Show fallback info */}
+                {masterPackages.length === 0 && (
+                  <div className="text-xs text-amber-600 bg-amber-50 p-2 rounded border border-amber-200">
+                    ⚠️ Using default plans. Configure plans in Master Settings for automatic fee mapping.
+                  </div>
                 )}
               </div>
 
@@ -794,7 +1091,7 @@ export const ReceiptForm: React.FC<ReceiptFormProps> = ({ initialData, onSubmit,
               <div className="space-y-2">
                 <Label htmlFor="transaction_type">Transaction Type *</Label>
                 <Select
-                  onValueChange={(value) => setValue('transaction_type', value as unknown)}
+                  onValueChange={(value) => setValue('transaction_type', value as 'payment' | 'partial_payment' | 'renewal' | 'adjustment')}
                   defaultValue={watch('transaction_type')}
                 >
                   <SelectTrigger>
@@ -811,6 +1108,28 @@ export const ReceiptForm: React.FC<ReceiptFormProps> = ({ initialData, onSubmit,
                   <p className="text-sm text-destructive">{errors.transaction_type.message}</p>
                 )}
               </div>
+
+               {/* Payment Type */}
+        <div className="space-y-2">
+          <Label htmlFor="payment_type">Payment Method *</Label>
+          <Select
+            onValueChange={(value) => setValue('payment_type', value as 'cash' | 'card' | 'upi' | 'bank_transfer')}
+            defaultValue={initialData?.payment_type || selectedMember?.paymentMode || 'cash'}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Select payment method" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="cash">💵 Cash Payment</SelectItem>
+              <SelectItem value="card">💳 Card Payment</SelectItem>
+              <SelectItem value="upi">📱 UPI Payment</SelectItem>
+              <SelectItem value="bank_transfer">🏦 Bank Transfer</SelectItem>
+            </SelectContent>
+          </Select>
+          {errors.payment_type && (
+            <p className="text-sm text-destructive">{errors.payment_type.message}</p>
+          )}
+        </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -827,24 +1146,68 @@ export const ReceiptForm: React.FC<ReceiptFormProps> = ({ initialData, onSubmit,
                 )}
               </div>
 
-              {/* Subscription End Date (Auto-calculated) */}
+              {/* Subscription End Date (Auto-calculated but editable) */}
               <div className="space-y-2">
                 <Label htmlFor="subscription_end_date">
                   Subscription End Date *
                   <span className="text-xs text-muted-foreground ml-2">
-                    (Auto-calculated)
+                    (Auto-calculated, but editable)
                   </span>
                 </Label>
                 <Input
                   id="subscription_end_date"
                   type="date"
                   {...register('subscription_end_date')}
-                  className="bg-muted"
-                  readOnly
+                  className="bg-blue-50 border-blue-300"
                 />
                 {errors.subscription_end_date && (
                   <p className="text-sm text-destructive">{errors.subscription_end_date.message}</p>
                 )}
+                {/* Show duration info */}
+                {selectedPlanType && (() => {
+                  // First check master packages if available
+                  let selectedPackage = null;
+                  let duration = 1;
+                  let source = 'default';
+                  
+                  if (masterPackages.length > 0) {
+                    selectedPackage = masterPackages.find(pkg => {
+                      const nameMatch = pkg.name?.toLowerCase() === selectedPlanType.toLowerCase();
+                      const durationTypeMatch = pkg.duration_type?.toLowerCase() === selectedPlanType.toLowerCase();
+                      const idMatch = pkg.id?.toString() === selectedPlanType;
+                      return nameMatch || durationTypeMatch || idMatch;
+                    });
+                    
+                    if (selectedPackage && selectedPackage.duration_months) {
+                      duration = parseInt(selectedPackage.duration_months, 10) || 1;
+                      source = 'master settings';
+                    }
+                  }
+                  
+                  // Fallback to PLAN_CONFIG if no master package found
+                  if (!selectedPackage && PLAN_CONFIG[selectedPlanType as keyof typeof PLAN_CONFIG]) {
+                    duration = PLAN_CONFIG[selectedPlanType as keyof typeof PLAN_CONFIG].duration;
+                    source = 'default config';
+                  }
+                  
+                  return (
+                    <div className="space-y-1">
+                      <p className="text-xs text-blue-600">
+                        📅 Duration: {duration} month{duration > 1 ? 's' : ''} (from {source})
+                      </p>
+                      {selectedPackage && (
+                        <p className="text-xs text-green-600">
+                          ✓ Found plan: {selectedPackage.name || selectedPackage.plan_type || 'Unnamed'}
+                        </p>
+                      )}
+                      {!selectedPackage && masterPackages.length > 0 && (
+                        <p className="text-xs text-amber-600">
+                          ⚠️ Plan not found in master packages, using fallback duration
+                        </p>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
             </div>
           </CardContent>
@@ -924,37 +1287,220 @@ export const ReceiptForm: React.FC<ReceiptFormProps> = ({ initialData, onSubmit,
                   <p className="text-sm text-destructive">{errors.discount.message}</p>
                 )}
               </div>
+            </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="amount">
-                  Total Amount (₹) *
-                  <span className="text-xs text-muted-foreground ml-2">
-                    (Auto-calculated or manually editable)
-                  </span>
-                </Label>
-                <Input
-                  id="amount"
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  {...register('amount', {
-                    valueAsNumber: true,
-                    onChange: (e) => {
-                      const value = parseFloat(e.target.value) || 0;
-                      setValue('amount', value);
-                      console.log('Total amount manually changed:', value);
-                    }
-                  })}
-                  placeholder="0.00"
-                  className="bg-green-50 border-green-300 font-bold text-lg text-green-800"
-                />
-                {errors.amount && (
-                  <p className="text-sm text-destructive">{errors.amount.message}</p>
+            {/* Enhanced Tax Settings Section */}
+            {taxSettings.length > 0 && (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <Label className="text-base font-semibold text-gray-900">Tax Settings</Label>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline" className="text-xs">{getTaxTypeLabel()}</Badge>
+                    {Object.values(selectedTaxes).some(selected => selected) && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={clearAllTaxes}
+                        className="text-xs text-red-600 hover:text-red-800"
+                      >
+                        Clear All
+                      </Button>
+                    )}
+                  </div>
+                </div>
+                
+                {/* Tax Selection Dropdowns */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Inclusive Tax Dropdown */}
+                  {taxSettings.filter(tax => tax.is_inclusive).length > 0 && (
+                    <div className="space-y-2">
+                      <Label className="text-sm font-semibold text-blue-700 flex items-center gap-2">
+                        <Badge variant="secondary" className="bg-blue-100 text-blue-800 border-blue-300 text-xs">
+                          Tax Inclusive
+                        </Badge>
+                        Select Inclusive Tax
+                      </Label>
+                      <Select
+                        value={Object.keys(selectedTaxes).find(id => selectedTaxes[id] && taxSettings.find(t => t.id === id)?.is_inclusive) || undefined}
+                        onValueChange={(value) => {
+                          if (value && value !== "none") {
+                            // Clear all taxes and select only this inclusive tax
+                            const newSelection: {[key: string]: boolean} = {};
+                            taxSettings.forEach(tax => {
+                              newSelection[tax.id] = tax.id === value;
+                            });
+                            setTaxSelection(newSelection);
+                          } else {
+                            clearAllTaxes();
+                          }
+                        }}
+                      >
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="Choose inclusive tax (optional)" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">No Tax</SelectItem>
+                          {taxSettings
+                            .filter(tax => tax.is_inclusive)
+                            .map(tax => (
+                              <SelectItem key={tax.id} value={tax.id}>
+                                {tax.name} ({tax.rate}%) - {tax.tax_type.toUpperCase()}
+                              </SelectItem>
+                            ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-blue-600">
+                        Tax amount is already included in the price. Total won't change.
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Exclusive Tax Dropdown */}
+                  {taxSettings.filter(tax => !tax.is_inclusive).length > 0 && (
+                    <div className="space-y-2">
+                      <Label className="text-sm font-semibold text-green-700 flex items-center gap-2">
+                        <Badge variant="secondary" className="bg-green-100 text-green-800 border-green-300 text-xs">
+                          Tax Exclusive
+                        </Badge>
+                        Select Exclusive Tax
+                      </Label>
+                      <Select
+                        value={Object.keys(selectedTaxes).find(id => selectedTaxes[id] && taxSettings.find(t => t.id === id && !t.is_inclusive)) || undefined}
+                        onValueChange={(value) => {
+                          if (value && value !== "none") {
+                            // Clear all taxes and select only this exclusive tax
+                            const newSelection: {[key: string]: boolean} = {};
+                            taxSettings.forEach(tax => {
+                              newSelection[tax.id] = tax.id === value;
+                            });
+                            setTaxSelection(newSelection);
+                          } else {
+                            clearAllTaxes();
+                          }
+                        }}
+                      >
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="Choose exclusive tax (optional)" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">No Tax</SelectItem>
+                          {taxSettings
+                            .filter(tax => !tax.is_inclusive)
+                            .map(tax => (
+                              <SelectItem key={tax.id} value={tax.id}>
+                                {tax.name} ({tax.rate}%) - {tax.tax_type.toUpperCase()}
+                              </SelectItem>
+                            ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-green-600">
+                        Tax amount will be added to the total price.
+                      </p>
+                    </div>
+                  )}
+                </div>
+                
+                {/* Tax Summary */}
+                {calculationResult.taxAmount > 0 && (
+                  <div className="mt-4 p-3 bg-gray-50 rounded border">
+                    <div className="text-sm space-y-1">
+                      <div className="flex justify-between">
+                        <span>Base Amount:</span>
+                        <span>₹{calculationResult.baseAmount.toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Total Tax ({getTaxTypeLabel()}):</span>
+                        <span>₹{calculationResult.taxAmount.toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between font-semibold border-t pt-1">
+                        <span>Final Amount:</span>
+                        <span>₹{calculationResult.totalAmount.toFixed(2)}</span>
+                      </div>
+                    </div>
+                  </div>
                 )}
-                <p className="text-xs text-green-600">
-                  Auto-calculation: ₹{registrationFee || 0} + ₹{packageFee || 0} - ₹{discount || 0} = ₹{Math.max(0, (registrationFee || 0) + (packageFee || 0) - (discount || 0))}
-                </p>
               </div>
+            )}
+
+            {/* Manual Tax Fields (Fallback) */}
+            {taxSettings.length === 0 && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="cgst">CGST (₹)</Label>
+                  <Input
+                    id="cgst"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    {...register('cgst', {
+                      valueAsNumber: true,
+                      onChange: (e) => {
+                        const value = parseFloat(e.target.value) || 0;
+                        setValue('cgst', value);
+                        console.log('CGST changed:', value);
+                      }
+                    })}
+                    placeholder="0.00"
+                  />
+                  {errors.cgst && (
+                    <p className="text-sm text-destructive">{errors.cgst.message}</p>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="sgst">SGST (₹)</Label>
+                  <Input
+                    id="sgst"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    {...register('sgst', {
+                      valueAsNumber: true,
+                      onChange: (e) => {
+                        const value = parseFloat(e.target.value) || 0;
+                        setValue('sgst', value);
+                        console.log('SGST changed:', value);
+                      }
+                    })}
+                    placeholder="0.00"
+                  />
+                  {errors.sgst && (
+                    <p className="text-sm text-destructive">{errors.sgst.message}</p>
+                  )}
+                </div>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <Label htmlFor="amount">
+                Total Amount (₹) *
+                <span className="text-xs text-muted-foreground ml-2">
+                  (Auto-calculated or manually editable)
+                </span>
+              </Label>
+              <Input
+                id="amount"
+                type="number"
+                step="0.01"
+                min="0"
+                {...register('amount', {
+                  valueAsNumber: true,
+                  onChange: (e) => {
+                    const value = parseFloat(e.target.value) || 0;
+                    setValue('amount', value);
+                    console.log('Total amount manually changed:', value);
+                  }
+                })}
+                placeholder="0.00"
+                className="bg-green-50 border-green-300 font-bold text-lg text-green-800"
+              />
+              {errors.amount && (
+                <p className="text-sm text-destructive">{errors.amount.message}</p>
+              )}
+              <p className="text-xs text-green-600">
+                Auto-calculation: ₹{registrationFee || 0} + ₹{packageFee || 0} - ₹{discount || 0} = ₹{Math.max(0, (registrationFee || 0) + (packageFee || 0) - (discount || 0))}
+              </p>
             </div>
 
             {/* Amount Paid and Due Amount Section */}
@@ -1103,7 +1649,7 @@ export const ReceiptForm: React.FC<ReceiptFormProps> = ({ initialData, onSubmit,
         )}
 
         {/* Payment Type */}
-        <div className="space-y-2">
+        {/* <div className="space-y-2">
           <Label htmlFor="payment_type">Payment Method *</Label>
           <Select
             onValueChange={(value) => setValue('payment_type', value as 'cash' | 'card' | 'upi' | 'bank_transfer')}
@@ -1122,7 +1668,7 @@ export const ReceiptForm: React.FC<ReceiptFormProps> = ({ initialData, onSubmit,
           {errors.payment_type && (
             <p className="text-sm text-destructive">{errors.payment_type.message}</p>
           )}
-        </div>
+        </div> */}
       </div>
 
       {/* Description */}

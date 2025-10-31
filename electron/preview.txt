@@ -1,0 +1,603 @@
+const Database = require('better-sqlite3');
+const path = require('path');
+const { app } = require('electron');
+const fs = require('fs');
+
+class DatabaseService {
+  constructor() {
+    this.db = null;
+    this.init();
+  }
+
+  init() {
+    try {
+      // Create database directory if it doesn't exist
+      const userDataPath = app.getPath('userData');
+      const dbDir = path.join(userDataPath, 'database');
+
+      if (!fs.existsSync(dbDir)) {
+        fs.mkdirSync(dbDir, { recursive: true });
+      }
+
+      const dbPath = path.join(dbDir, 'faizanGym.db');
+      console.log('Database path:', dbPath);
+
+      this.db = new Database(dbPath);
+      this.db.pragma('journal_mode = WAL');
+
+      this.createTables();
+      this.initializeDefaultData();
+
+      console.log('Database initialized successfully');
+    } catch (error) {
+      console.error('Database initialization error:', error);
+      throw error;
+    }
+  }
+
+  createTables() {
+    // Users table
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS users (
+        id TEXT PRIMARY KEY,
+        username TEXT UNIQUE NOT NULL,
+        password TEXT NOT NULL,
+        role TEXT NOT NULL CHECK (role IN ('admin', 'trainer', 'receptionist')),
+        name TEXT NOT NULL,
+        email TEXT,
+        phone TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Members table - Complete schema with all columns from the start
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS members (
+        id TEXT PRIMARY KEY,
+        custom_member_id TEXT UNIQUE,
+        name TEXT NOT NULL,
+        email TEXT NOT NULL,
+        address TEXT DEFAULT 'Not specified',
+        telephone_no TEXT,
+        mobile_no TEXT DEFAULT '0000000000',
+        occupation TEXT DEFAULT 'Not specified',
+        marital_status TEXT DEFAULT 'unmarried',
+        anniversary_date TEXT,
+        blood_group TEXT,
+        sex TEXT DEFAULT 'male',
+        date_of_birth TEXT DEFAULT '1990-01-01',
+        alternate_no TEXT,
+        member_image TEXT,
+        id_proof_image TEXT,
+        date_of_registration TEXT,
+        receipt_no TEXT,
+        payment_mode TEXT DEFAULT 'cash',
+        plan_type TEXT DEFAULT 'monthly',
+        services TEXT DEFAULT '["gym"]',
+        membership_fees REAL DEFAULT 0,
+        registration_fee REAL DEFAULT 0,
+        package_fee REAL DEFAULT 0,
+        discount REAL DEFAULT 0,
+        paid_amount REAL DEFAULT 0,
+        subscription_start_date TEXT,
+        subscription_end_date TEXT,
+        subscription_status TEXT CHECK (subscription_status IN ('active', 'expiring_soon', 'expired')) DEFAULT 'active',
+        medical_issues TEXT,
+        goals TEXT,
+        height REAL,
+        weight REAL,
+        status TEXT NOT NULL CHECK (status IN ('active', 'inactive', 'frozen', 'partial')) DEFAULT 'active',
+        created_at TEXT NOT NULL,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Enquiries table - Updated schema to match the form
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS enquiries (
+        id TEXT PRIMARY KEY,
+        enquiry_number TEXT UNIQUE,
+        name TEXT NOT NULL,
+        address TEXT NOT NULL,
+        telephone_no TEXT,
+        mobile_no TEXT NOT NULL,
+        occupation TEXT NOT NULL,
+        sex TEXT NOT NULL CHECK (sex IN ('male', 'female')),
+        ref_person_name TEXT,
+        date_of_enquiry TEXT NOT NULL,
+        interested_in TEXT NOT NULL,
+        membership_fees REAL DEFAULT 0,
+        payment_mode TEXT NOT NULL CHECK (payment_mode IN ('cash', 'cheque')),
+        payment_frequency TEXT NOT NULL CHECK (payment_frequency IN ('monthly', 'quarterly', 'half_yearly', 'yearly')),
+        status TEXT NOT NULL CHECK (status IN ('new', 'contacted', 'follow_up', 'converted', 'closed')) DEFAULT 'new',
+        notes TEXT,
+        follow_up_date TEXT,
+        converted_to_member_id TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        created_by TEXT,
+        FOREIGN KEY (converted_to_member_id) REFERENCES members (id)
+      )
+    `);
+
+    // Add missing columns to existing enquiries table if they don't exist
+    try {
+      this.db.exec(`ALTER TABLE enquiries ADD COLUMN enquiry_number TEXT UNIQUE`);
+    } catch (error) {
+      // Column already exists, ignore error
+    }
+
+    try {
+      this.db.exec(`ALTER TABLE enquiries ADD COLUMN address TEXT NOT NULL DEFAULT 'Not specified'`);
+    } catch (error) {
+      // Column already exists, ignore error
+    }
+
+    try {
+      this.db.exec(`ALTER TABLE enquiries ADD COLUMN telephone_no TEXT`);
+    } catch (error) {
+      // Column already exists, ignore error
+    }
+
+    try {
+      this.db.exec(`ALTER TABLE enquiries ADD COLUMN mobile_no TEXT NOT NULL DEFAULT '0000000000'`);
+    } catch (error) {
+      // Column already exists, ignore error
+    }
+
+    try {
+      this.db.exec(`ALTER TABLE enquiries ADD COLUMN occupation TEXT NOT NULL DEFAULT 'Not specified'`);
+    } catch (error) {
+      // Column already exists, ignore error
+    }
+
+    try {
+      this.db.exec(`ALTER TABLE enquiries ADD COLUMN sex TEXT NOT NULL DEFAULT 'male'`);
+    } catch (error) {
+      // Column already exists, ignore error
+    }
+
+    try {
+      this.db.exec(`ALTER TABLE enquiries ADD COLUMN ref_person_name TEXT`);
+    } catch (error) {
+      // Column already exists, ignore error
+    }
+
+    try {
+      this.db.exec(`ALTER TABLE enquiries ADD COLUMN date_of_enquiry TEXT NOT NULL DEFAULT '${new Date().toISOString().split('T')[0]}'`);
+    } catch (error) {
+      // Column already exists, ignore error
+    }
+
+    try {
+      this.db.exec(`ALTER TABLE enquiries ADD COLUMN interested_in TEXT NOT NULL DEFAULT '["gym"]'`);
+    } catch (error) {
+      // Column already exists, ignore error
+    }
+
+    try {
+      this.db.exec(`ALTER TABLE enquiries ADD COLUMN membership_fees REAL DEFAULT 0`);
+    } catch (error) {
+      // Column already exists, ignore error
+    }
+
+    try {
+      this.db.exec(`ALTER TABLE enquiries ADD COLUMN payment_mode TEXT NOT NULL DEFAULT 'cash'`);
+    } catch (error) {
+      // Column already exists, ignore error
+    }
+
+    try {
+      this.db.exec(`ALTER TABLE enquiries ADD COLUMN payment_frequency TEXT NOT NULL DEFAULT 'yearly'`);
+    } catch (error) {
+      // Column already exists, ignore error
+    }
+
+    try {
+      this.db.exec(`ALTER TABLE enquiries ADD COLUMN converted_to_member_id TEXT`);
+    } catch (error) {
+      // Column already exists, ignore error
+    }
+
+    try {
+      this.db.exec(`ALTER TABLE enquiries ADD COLUMN created_by TEXT`);
+    } catch (error) {
+      // Column already exists, ignore error
+    }
+
+    // Invoices table
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS invoices (
+        id TEXT PRIMARY KEY,
+        invoice_number TEXT UNIQUE NOT NULL,
+        member_id TEXT NOT NULL,
+        member_name TEXT NOT NULL,
+        registration_fee REAL DEFAULT 0,
+        package_fee REAL NOT NULL,
+        discount REAL DEFAULT 0,
+        total_amount REAL NOT NULL,
+        paid_amount REAL DEFAULT 0,
+        status TEXT NOT NULL CHECK (status IN ('unpaid', 'partial', 'paid')) DEFAULT 'unpaid',
+        due_date TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (member_id) REFERENCES members (id)
+      )
+    `);
+
+    // Receipts table - Complete schema with all columns
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS receipts (
+        id TEXT PRIMARY KEY,
+        receipt_number TEXT UNIQUE NOT NULL,
+        invoice_id TEXT,
+        member_id TEXT,
+        member_name TEXT NOT NULL,
+        amount REAL NOT NULL,
+        payment_type TEXT NOT NULL CHECK (payment_type IN ('cash', 'card', 'upi', 'bank_transfer')),
+        description TEXT,
+        receipt_category TEXT DEFAULT 'member',
+        transaction_type TEXT DEFAULT 'payment',
+        custom_member_id TEXT,
+        subscription_start_date TEXT,
+        subscription_end_date TEXT,
+        plan_type TEXT,
+        payment_mode TEXT,
+        mobile_no TEXT,
+        package_fee REAL DEFAULT 0,
+        registration_fee REAL DEFAULT 0,
+        discount REAL DEFAULT 0,
+        email TEXT,
+        cgst REAL DEFAULT 0,
+        sigst REAL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        created_by TEXT NOT NULL,
+        FOREIGN KEY (member_id) REFERENCES members (id),
+        FOREIGN KEY (invoice_id) REFERENCES invoices (id)
+      )
+    `);
+
+    // Add new columns for amount_paid and due_amount if they don't exist
+    try {
+      this.db.exec(`ALTER TABLE receipts ADD COLUMN amount_paid REAL DEFAULT NULL`);
+    } catch (error) {
+      // Column already exists, ignore error
+    }
+
+    try {
+      this.db.exec(`ALTER TABLE receipts ADD COLUMN due_amount REAL DEFAULT NULL`);
+    } catch (error) {
+      // Column already exists, ignore error
+    }
+
+    // Add versioning columns for receipt history
+    try {
+      this.db.exec(`ALTER TABLE receipts ADD COLUMN original_receipt_id TEXT`);
+    } catch (error) {
+      // Column already exists, ignore error
+    }
+
+    try {
+      this.db.exec(`ALTER TABLE receipts ADD COLUMN version_number INTEGER DEFAULT 1`);
+    } catch (error) {
+      // Column already exists, ignore error
+    }
+
+    try {
+      this.db.exec(`ALTER TABLE receipts ADD COLUMN is_current_version BOOLEAN DEFAULT TRUE`);
+    } catch (error) {
+      // Column already exists, ignore error
+    }
+
+    try {
+      this.db.exec(`ALTER TABLE receipts ADD COLUMN superseded_at TEXT`);
+    } catch (error) {
+      // Column already exists, ignore error
+    }
+
+    // Migrate existing receipts to have proper amount_paid and due_amount values
+    try {
+      this.db.exec(`
+        UPDATE receipts 
+        SET amount_paid = amount, due_amount = 0 
+        WHERE amount_paid IS NULL OR due_amount IS NULL
+      `);
+      console.log('Migrated existing receipts to have proper amount_paid and due_amount values');
+    } catch (error) {
+      console.error('Error migrating receipt amounts:', error);
+    }
+
+    // Body measurements table - Updated with all physical measurement fields
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS body_measurements (
+        id TEXT PRIMARY KEY,
+        member_id TEXT NOT NULL,
+        custom_member_id TEXT,
+        member_name TEXT NOT NULL,
+        serial_number INTEGER,
+        measurement_date TEXT NOT NULL,
+        weight REAL,
+        height REAL,
+        age INTEGER,
+        neck REAL,
+        chest REAL,
+        arms REAL,
+        fore_arms REAL,
+        wrist REAL,
+        tummy REAL,
+        waist REAL,
+        hips REAL,
+        thighs REAL,
+        calf REAL,
+        fat_percentage REAL,
+        bmi REAL,
+        bmr REAL,
+        vf REAL,
+        notes TEXT,
+        created_at TEXT NOT NULL,
+        recorded_by TEXT NOT NULL,
+        FOREIGN KEY (member_id) REFERENCES members (id)
+      )
+    `);
+
+    // Add new columns to existing body_measurements table if they don't exist
+    const measurementColumns = [
+      'member_name TEXT',
+      'serial_number INTEGER',
+      'measurement_date TEXT',
+      'age INTEGER',
+      'neck REAL',
+      'arms REAL',
+      'fore_arms REAL',
+      'wrist REAL',
+      'tummy REAL',
+      'calf REAL',
+      'fat_percentage REAL',
+      'bmr REAL',
+      'vf REAL'
+    ];
+
+    measurementColumns.forEach(column => {
+      try {
+        const [columnName] = column.split(' ');
+        this.db.exec(`ALTER TABLE body_measurements ADD COLUMN ${column}`);
+        console.log(`Added column ${columnName} to body_measurements table`);
+      } catch (error) {
+        // Column already exists, ignore error
+      }
+    });
+
+    // Attendance table
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS attendance (
+        id TEXT PRIMARY KEY,
+        member_id TEXT NOT NULL,
+        custom_member_id TEXT,
+        member_name TEXT NOT NULL,
+        check_in TEXT NOT NULL,
+        check_out TEXT,
+        date TEXT NOT NULL,
+        profile_image TEXT,
+        FOREIGN KEY (member_id) REFERENCES members (id)
+      )
+    `);
+
+    // Staff Attendance table
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS staff_attendance (
+        id TEXT PRIMARY KEY,
+        staff_id TEXT NOT NULL,
+        staff_name TEXT NOT NULL,
+        check_in TEXT NOT NULL,
+        check_out TEXT,
+        date TEXT NOT NULL,
+        profile_image TEXT,
+        role TEXT,
+        shift TEXT,
+        FOREIGN KEY (staff_id) REFERENCES staff (id)
+      )
+    `);
+
+---TAIL---
+
+    }
+  }
+
+  // Utility methods
+  generateId() {
+    return `id_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  }
+
+  generateReceiptNumber() {
+    try {
+      // Get current counter
+      const counterResult = this.db.prepare('SELECT value FROM settings WHERE key = ?').get('receipt_counter');
+      let counter = counterResult ? parseInt(counterResult.value) : 0;
+      
+      // Increment counter
+      counter++;
+      
+      // Update counter in database
+      this.db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('receipt_counter', counter.toString());
+      
+      // Format as RCP001, RCP002, etc.
+      return `RCP${counter.toString().padStart(3, '0')}`;
+    } catch (error) {
+      console.error('Generate receipt number error:', error);
+      return `RCP${Date.now()}`;
+    }
+  }
+
+
+
+  generateInvoiceNumber() {
+    try {
+      // Get current counter
+      const counterResult = this.db.prepare('SELECT value FROM settings WHERE key = ?').get('invoice_counter');
+      let counter = counterResult ? parseInt(counterResult.value) : 0;
+      
+      // Increment counter
+      counter++;
+      
+      // Update counter in database
+      this.db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('invoice_counter', counter.toString());
+      
+      // Format as INV001, INV002, etc.
+      return `INV${counter.toString().padStart(3, '0')}`;
+    } catch (error) {
+      console.error('Generate invoice number error:', error);
+      return `INV${Date.now()}`;
+    }
+  }
+
+  updateMemberNumber(memberId, newMemberNumber) {
+    try {
+      const stmt = this.db.prepare('UPDATE members SET custom_member_id = ? WHERE id = ?');
+      const result = stmt.run(newMemberNumber, memberId);
+      return { success: result.changes > 0 };
+    } catch (error) {
+      console.error('Update member number error:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  isMemberNumberTaken(memberNumber) {
+    try {
+      const stmt = this.db.prepare('SELECT id FROM members WHERE custom_member_id = ?');
+      const result = stmt.get(memberNumber);
+      return !!result;
+    } catch (error) {
+      console.error('Check member number taken error:', error);
+      return false;
+    }
+  }
+
+  // Subscription status update
+  updateAllSubscriptionStatuses() {
+    try {
+      console.log('🔄 Updating all subscription statuses...');
+      
+      const today = new Date().toISOString().split('T')[0];
+      const warningDate = new Date();
+      warningDate.setDate(warningDate.getDate() + 7); // 7 days from now
+      const warningDateStr = warningDate.toISOString().split('T')[0];
+
+      console.log('📅 Date comparison:', {
+        today,
+        warningDate: warningDateStr
+      });
+
+      // Debug: Check members that should be expired
+      const shouldBeExpired = this.db.prepare(`
+        SELECT name, subscription_end_date, status, subscription_status 
+        FROM members 
+        WHERE subscription_end_date IS NOT NULL 
+        AND subscription_end_date < ?
+        LIMIT 5
+      `).all(today);
+      
+      console.log('🔍 Members that should be expired:', shouldBeExpired);
+
+      // Update expired memberships - set subscription_status to expired and main status to inactive
+      const expiredStmt = this.db.prepare(`
+        UPDATE members 
+        SET subscription_status = 'expired', status = 'inactive', updated_at = CURRENT_TIMESTAMP
+        WHERE subscription_end_date IS NOT NULL 
+        AND DATE(subscription_end_date) < DATE(?) 
+        AND status IN ('active', 'inactive')
+        AND subscription_status != 'expired'
+      `);
+      const expiredResult = expiredStmt.run(today);
+      console.log('📅 Checking for expired memberships with end date before:', today);
+
+      // Update expiring soon memberships (still active but expiring within 7 days)
+      const expiringSoonStmt = this.db.prepare(`
+        UPDATE members 
+        SET subscription_status = 'expiring_soon', updated_at = CURRENT_TIMESTAMP
+        WHERE subscription_end_date IS NOT NULL
+        AND subscription_end_date >= ? 
+        AND subscription_end_date <= ? 
+        AND status = 'active'
+        AND subscription_status != 'expiring_soon'
+      `);
+      const expiringSoonResult = expiringSoonStmt.run(today, warningDateStr);
+
+      // Update active memberships (subscription end date is more than 7 days away)
+      const activeStmt = this.db.prepare(`
+        UPDATE members 
+        SET subscription_status = 'active', updated_at = CURRENT_TIMESTAMP
+        WHERE subscription_end_date IS NOT NULL
+        AND subscription_end_date > ? 
+        AND status = 'active'
+        AND subscription_status != 'active'
+      `);
+      const activeResult = activeStmt.run(warningDateStr);
+
+      // Log members that were updated
+      if (expiredResult.changes > 0) {
+        const expiredMembers = this.db.prepare(`
+          SELECT name, subscription_end_date FROM members 
+          WHERE subscription_status = 'expired' AND updated_at > datetime('now', '-1 minute')
+        `).all();
+        console.log('⚠️ Members set to expired:', expiredMembers.map(m => `${m.name} (expired: ${m.subscription_end_date})`));
+      }
+
+      console.log(`✅ Subscription status update complete:`, {
+        expired: expiredResult.changes,
+        expiring_soon: expiringSoonResult.changes,
+        active: activeResult.changes,
+        total_updated: expiredResult.changes + expiringSoonResult.changes + activeResult.changes
+      });
+
+      return {
+        expired: expiredResult.changes,
+        expiring_soon: expiringSoonResult.changes,
+        active: activeResult.changes
+      };
+    } catch (error) {
+      console.error('Update subscription statuses error:', error);
+      return false;
+    }
+  }
+
+  // Calculate subscription end date
+  calculateSubscriptionEndDate(startDate, planType) {
+    try {
+      const start = new Date(startDate);
+      let endDate = new Date(start);
+
+      switch (planType) {
+        case 'monthly':
+          endDate.setMonth(endDate.getMonth() + 1);
+          break;
+        case 'quarterly':
+          endDate.setMonth(endDate.getMonth() + 3);
+          break;
+        case 'half_yearly':
+          endDate.setMonth(endDate.getMonth() + 6);
+          break;
+        case 'yearly':
+          endDate.setFullYear(endDate.getFullYear() + 1);
+          break;
+        default:
+          endDate.setMonth(endDate.getMonth() + 1); // Default to monthly
+      }
+
+      return endDate.toISOString().split('T')[0];
+    } catch (error) {
+      console.error('Calculate subscription end date error:', error);
+      const fallback = new Date();
+      fallback.setMonth(fallback.getMonth() + 1);
+      return fallback.toISOString().split('T')[0];
+    }
+  }
+
+  close() {
+    if (this.db) {
+      this.db.close();
+    }
+  }
+}
+
+module.exports = DatabaseService;

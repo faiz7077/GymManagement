@@ -3,8 +3,22 @@ import html2canvas from 'html2canvas';
 import { Receipt } from './database';
 import { format } from 'date-fns';
 
+// Enhanced Receipt interface for PDF generation
+interface EnhancedReceipt extends Receipt {
+  tax_breakdown?: Array<{
+    id: string;
+    name: string;
+    rate: number;
+    amount: number;
+    type: 'inclusive' | 'exclusive';
+  }>;
+  tax_type?: 'inclusive' | 'exclusive' | null;
+  total_tax_amount?: number;
+  base_amount_before_tax?: number;
+}
+
 export interface PDFGenerationOptions {
-  receipt: Receipt;
+  receipt: EnhancedReceipt;
   gymName?: string;
   gymAddress?: string;
   gymPhone?: string;
@@ -206,19 +220,57 @@ export class ReceiptPDFGenerator {
     pdf.setFont('helvetica', 'normal');
     pdf.text(`-$${(receipt.discount || 0).toFixed(2)}`, 45, currentY + 32);
     
-    // Right column - Taxes
-    pdf.setFont('helvetica', 'bold');
-    pdf.text('CGST:', pageWidth - 80, currentY + 12);
-    pdf.setFont('helvetica', 'normal');
-    pdf.text(`$${(receipt.cgst || 0).toFixed(2)}`, pageWidth - 50, currentY + 12);
+    // Right column - Enhanced Tax Information
+    let taxYOffset = 12;
     
-    pdf.setFont('helvetica', 'bold');
-    pdf.text('SGST:', pageWidth - 80, currentY + 22);
-    pdf.setFont('helvetica', 'normal');
-    pdf.text(`$${(receipt.sigst || 0).toFixed(2)}`, pageWidth - 50, currentY + 22);
+    // Check if we have enhanced tax data
+    if (receipt.tax_breakdown && receipt.tax_breakdown.length > 0) {
+      // Show tax type indicator
+      pdf.setFont('helvetica', 'bold');
+      pdf.text('Tax Type:', pageWidth - 80, currentY + taxYOffset);
+      pdf.setFont('helvetica', 'normal');
+      pdf.text(receipt.tax_type === 'inclusive' ? 'Inclusive' : 'Exclusive', pageWidth - 50, currentY + taxYOffset);
+      taxYOffset += 10;
+      
+      // Show individual taxes
+      receipt.tax_breakdown.forEach((tax, index) => {
+        if (taxYOffset > 40) return; // Prevent overflow
+        
+        pdf.setFont('helvetica', 'bold');
+        pdf.text(`${tax.name}:`, pageWidth - 80, currentY + taxYOffset);
+        pdf.setFont('helvetica', 'normal');
+        pdf.text(`₹${tax.amount.toFixed(2)} (${tax.rate}%)`, pageWidth - 50, currentY + taxYOffset);
+        taxYOffset += 8;
+      });
+    } else {
+      // Fallback to legacy tax fields
+      pdf.setFont('helvetica', 'bold');
+      pdf.text('CGST:', pageWidth - 80, currentY + 12);
+      pdf.setFont('helvetica', 'normal');
+      pdf.text(`₹${(receipt.cgst || 0).toFixed(2)}`, pageWidth - 50, currentY + 12);
+      
+      pdf.setFont('helvetica', 'bold');
+      pdf.text('SGST:', pageWidth - 80, currentY + 22);
+      pdf.setFont('helvetica', 'normal');
+      pdf.text(`₹${(receipt.sigst || 0).toFixed(2)}`, pageWidth - 50, currentY + 22);
+    }
     
-    // Total amount (prominent)
-    const totalAmount = (receipt.registration_fee || 0) + (receipt.package_fee || 0) - (receipt.discount || 0) + (receipt.cgst || 0) + (receipt.sigst || 0);
+    // Total amount calculation (enhanced)
+    let totalAmount;
+    if (receipt.tax_breakdown && receipt.tax_breakdown.length > 0) {
+      // Use enhanced tax calculation
+      const baseAmount = (receipt.registration_fee || 0) + (receipt.package_fee || 0) - (receipt.discount || 0);
+      const taxAmount = receipt.total_tax_amount || 0;
+      
+      if (receipt.tax_type === 'inclusive') {
+        totalAmount = baseAmount; // For inclusive, total doesn't change
+      } else {
+        totalAmount = baseAmount + taxAmount; // For exclusive, add tax
+      }
+    } else {
+      // Fallback to legacy calculation
+      totalAmount = (receipt.registration_fee || 0) + (receipt.package_fee || 0) - (receipt.discount || 0) + (receipt.cgst || 0) + (receipt.sigst || 0);
+    }
     
     pdf.setDrawColor(...darkRedColor);
     pdf.setLineWidth(2);

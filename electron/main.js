@@ -461,6 +461,16 @@ ipcMain.handle('users-create', async (event, userData) => {
   }
 });
 
+ipcMain.handle('users-update-password', async (event, userId, newPassword) => {
+  try {
+    const success = dbService.updateUserPassword(userId, newPassword);
+    return { success };
+  } catch (error) {
+    console.error('Update user password error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
 // Members
 ipcMain.handle('members-get-all', async () => {
   try {
@@ -514,15 +524,168 @@ ipcMain.handle('members-update', async (event, id, memberData) => {
   }
 });
 
-ipcMain.handle('members-delete', async (event, id) => {
+ipcMain.handle('members-delete', async (event, id, deletedBy, deletionReason) => {
   try {
-    const success = dbService.deleteMember(id);
+    const success = dbService.deleteMember(id, deletedBy, deletionReason);
     return { success };
   } catch (error) {
     console.error('Delete member error:', error);
     return { success: false, error: error.message };
   }
 });
+
+// Member due amounts
+ipcMain.handle('get-all-members-with-due-amounts', async () => {
+  try {
+    const members = dbService.getAllMembersWithDueAmounts();
+    return { success: true, data: members };
+  } catch (error) {
+    console.error('Get members with due amounts error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('get-member-due-amount', async (event, memberId) => {
+  try {
+    const dueInfo = dbService.getMemberDueAmount(memberId);
+    return { success: true, data: dueInfo };
+  } catch (error) {
+    console.error('Get member due amount error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('pay-member-due-amount', async (event, memberId, paymentAmount, paymentType, createdBy) => {
+  try {
+    const result = dbService.payMemberDueAmount(memberId, paymentAmount, paymentType, createdBy);
+    return result;
+  } catch (error) {
+    console.error('Pay member due amount error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Find member by mobile number
+ipcMain.handle('find-member-by-mobile', async (event, mobileNumber) => {
+  try {
+    const result = dbService.findMemberByMobile(mobileNumber);
+    return result;
+  } catch (error) {
+    console.error('Find member by mobile error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Get member payment history
+ipcMain.handle('get-member-payment-history', async (event, memberId) => {
+  try {
+    const result = dbService.getMemberPaymentHistory(memberId);
+    return result;
+  } catch (error) {
+    console.error('Get member payment history error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Test IPC handler
+ipcMain.handle('test-ipc', async () => {
+  console.log('🚨🚨🚨 TEST IPC WORKING! 🚨🚨🚨');
+  return { success: true, message: 'IPC is working!' };
+});
+
+// Partial Members
+ipcMain.handle('members-save-partial', async (event, partialData) => {
+  console.log('🚨🚨🚨 MAIN PROCESS: Received save-partial-member request:', partialData);
+  console.log('🚨🚨🚨 MAIN PROCESS: dbService exists:', !!dbService);
+  console.log('🚨🚨🚨 MAIN PROCESS: savePartialMember method exists:', typeof dbService?.savePartialMember);
+  
+  try {
+    const result = dbService.savePartialMember(partialData);
+    console.log('🚨🚨🚨 MAIN PROCESS: Save partial member result:', result);
+    return result;
+  } catch (error) {
+    console.error('🚨🚨🚨 MAIN PROCESS: Save partial member error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('members-is-partial', async (event, memberId) => {
+  console.log('Main: Received is-partial-member request:', memberId);
+  try {
+    const isPartial = dbService.isPartialMember(memberId);
+    console.log('Main: Is partial member result:', isPartial);
+    return { success: true, data: isPartial };
+  } catch (error) {
+    console.error('Main: Check partial member error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('members-complete-partial', async (event, memberId, membershipData) => {
+  console.log('Main: Received complete-partial-member request:', memberId, membershipData);
+  try {
+    const result = dbService.completePartialMember(memberId, membershipData);
+    console.log('Main: Complete partial member result:', result);
+    return result;
+  } catch (error) {
+    console.error('Main: Complete partial member error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('members-get-partial', async () => {
+  console.log('Main: Received get-partial-members request');
+  try {
+    const partialMembers = dbService.getPartialMembers();
+    console.log('Main: Get partial members result:', partialMembers?.length || 0);
+    return { success: true, data: partialMembers };
+  } catch (error) {
+    console.error('Main: Get partial members error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Deleted Members
+ipcMain.handle('deleted-members-get-all', async () => {
+  try {
+    const deletedMembers = dbService.getAllDeletedMembers();
+    return { success: true, data: deletedMembers };
+  } catch (error) {
+    console.error('Get deleted members error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('deleted-members-get-by-id', async (event, id) => {
+  try {
+    const deletedMember = dbService.getDeletedMemberById(id);
+    return { success: true, data: deletedMember };
+  } catch (error) {
+    console.error('Get deleted member by ID error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('deleted-members-restore', async (event, deletedMemberId) => {
+  try {
+    const result = dbService.restoreDeletedMember(deletedMemberId);
+    return result;
+  } catch (error) {
+    console.error('Restore deleted member error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('deleted-members-permanent-delete', async (event, deletedMemberId) => {
+  try {
+    const result = dbService.permanentlyDeleteMember(deletedMemberId);
+    return result;
+  } catch (error) {
+    console.error('Permanent delete member error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
 //Attendance
 ipcMain.handle('getAllAttendance', () => {
   try {
@@ -678,6 +841,16 @@ ipcMain.handle('receipts-get-by-member', async (event, memberId) => {
   }
 });
 
+ipcMain.handle('receipts-get-member-history', async (event, memberId) => {
+  try {
+    const receipts = dbService.getMemberReceiptHistory(memberId);
+    return { success: true, data: receipts };
+  } catch (error) {
+    console.error('Get member receipt history error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
 ipcMain.handle('receipts-create', async (event, receiptData) => {
   try {
     const success = dbService.createReceipt(receiptData);
@@ -694,6 +867,37 @@ ipcMain.handle('receipts-update', async (event, id, receiptData) => {
     return { success };
   } catch (error) {
     console.error('Update receipt error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Receipt versioning handlers
+ipcMain.handle('receipts-create-version', async (event, receiptData) => {
+  try {
+    const success = dbService.createReceiptVersion(receiptData);
+    return { success };
+  } catch (error) {
+    console.error('Create receipt version error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('receipts-mark-superseded', async (event, receiptId) => {
+  try {
+    const success = dbService.markReceiptAsSuperseded(receiptId);
+    return { success };
+  } catch (error) {
+    console.error('Mark receipt as superseded error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('receipts-get-history', async (event, originalReceiptId) => {
+  try {
+    const history = dbService.getReceiptHistory(originalReceiptId);
+    return { success: true, data: history };
+  } catch (error) {
+    console.error('Get receipt history error:', error);
     return { success: false, error: error.message };
   }
 });
@@ -760,12 +964,124 @@ ipcMain.handle('enquiries-get-all', async () => {
   }
 });
 
+ipcMain.handle('enquiries-get-by-id', async (event, id) => {
+  try {
+    const enquiry = dbService.getEnquiryById(id);
+    return { success: true, data: enquiry };
+  } catch (error) {
+    console.error('Get enquiry by ID error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
 ipcMain.handle('enquiries-create', async (event, enquiryData) => {
   try {
     const success = dbService.createEnquiry(enquiryData);
     return { success };
   } catch (error) {
     console.error('Create enquiry error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('enquiries-update', async (event, id, enquiryData) => {
+  try {
+    const success = dbService.updateEnquiry(id, enquiryData);
+    return { success };
+  } catch (error) {
+    console.error('Update enquiry error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('enquiries-delete', async (event, id) => {
+  try {
+    const success = dbService.deleteEnquiry(id);
+    return { success };
+  } catch (error) {
+    console.error('Delete enquiry error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('enquiries-convert-to-member', async (event, enquiryId, memberData) => {
+  try {
+    const result = dbService.convertEnquiryToMember(enquiryId, memberData);
+    return result;
+  } catch (error) {
+    console.error('Convert enquiry to member error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('generate-enquiry-number', async () => {
+  try {
+    const enquiryNumber = dbService.generateEnquiryNumber();
+    return enquiryNumber;
+  } catch (error) {
+    console.error('Generate enquiry number error:', error);
+    return 'ENQ001';
+  }
+});
+
+// Monthly transaction report
+ipcMain.handle('get-monthly-transaction-report', async (event, month, year) => {
+  try {
+    const report = dbService.getMonthlyTransactionReport(month, year);
+    return { success: true, data: report };
+  } catch (error) {
+    console.error('Get monthly transaction report error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Body measurements
+ipcMain.handle('body-measurements-create', async (event, measurementData) => {
+  try {
+    const success = dbService.createBodyMeasurement(measurementData);
+    return { success };
+  } catch (error) {
+    console.error('Create body measurement error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('body-measurements-get-all', async () => {
+  try {
+    const measurements = dbService.getAllBodyMeasurements();
+    return { success: true, data: measurements };
+  } catch (error) {
+    console.error('Get body measurements error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('body-measurements-get-by-member', async (event, memberId) => {
+  try {
+    const measurements = dbService.getBodyMeasurementsByMember(memberId);
+    return { success: true, data: measurements };
+  } catch (error) {
+    console.error('Get body measurements by member error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('body-measurements-update', async (event, id, measurementData) => {
+  try {
+    const success = dbService.updateBodyMeasurement(id, measurementData);
+    return { success };
+  } catch (error) {
+    console.error('Update body measurement error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('body-measurements-delete', async (event, id) => {
+  try {
+    const success = dbService.deleteBodyMeasurement(id);
+    return { success };
+  } catch (error) {
+    console.error('Delete body measurement error:', error);
     return { success: false, error: error.message };
   }
 });
@@ -871,6 +1187,35 @@ ipcMain.handle('generate-invoice-number', async () => {
   return dbService.generateInvoiceNumber();
 });
 
+ipcMain.handle('generate-member-number', async () => {
+  return dbService.generateMemberNumber();
+});
+
+ipcMain.handle('update-member-number', async (event, memberId, newMemberNumber) => {
+  try {
+    const result = dbService.updateMemberNumber(memberId, newMemberNumber);
+    return result;
+  } catch (error) {
+    console.error('Update member number error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('check-member-number-available', async (event, memberNumber, excludeMemberId) => {
+  try {
+    const isTaken = dbService.isMemberNumberTaken(memberNumber);
+    // If excludeMemberId is provided, check if it's taken by a different member
+    if (excludeMemberId && isTaken) {
+      const existing = dbService.db.prepare('SELECT id FROM members WHERE custom_member_id = ?').get(memberNumber);
+      return { available: existing?.id === excludeMemberId };
+    }
+    return { available: !isTaken };
+  } catch (error) {
+    console.error('Check member number availability error:', error);
+    return { available: false, error: error.message };
+  }
+});
+
 // Invoice operations
 ipcMain.handle('get-all-invoices', async () => {
   return dbService.getAllInvoices();
@@ -892,26 +1237,6 @@ ipcMain.handle('create-invoice', async (event, invoiceData) => {
 
 ipcMain.handle('update-invoice-payment', async (event, invoiceId, paidAmount) => {
   return dbService.updateInvoicePayment(invoiceId, paidAmount);
-});
-
-ipcMain.handle('get-member-due-amount', async (event, memberId) => {
-  try {
-    const dueAmount = dbService.getMemberDueAmount(memberId);
-    return { success: true, dueAmount };
-  } catch (error) {
-    console.error('Get member due amount error:', error);
-    return { success: false, error: error.message };
-  }
-});
-
-ipcMain.handle('get-all-members-with-due-amounts', async () => {
-  try {
-    const members = dbService.getAllMembersWithDueAmounts();
-    return { success: true, data: members };
-  } catch (error) {
-    console.error('Get all members with due amounts error:', error);
-    return { success: false, error: error.message };
-  }
 });
 
 ipcMain.handle('recalculate-member-totals', async (event, memberId) => {
@@ -951,6 +1276,28 @@ ipcMain.handle('force-migration', async () => {
     return { success: true };
   } catch (error) {
     console.error('Force migration error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Force packages migration handler
+ipcMain.handle('force-packages-migration', async () => {
+  try {
+    dbService.forcePackagesMigration();
+    return { success: true };
+  } catch (error) {
+    console.error('Force packages migration error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Check packages constraint handler
+ipcMain.handle('check-packages-constraint', async () => {
+  try {
+    const supportsCustom = dbService.checkPackagesConstraint();
+    return { success: true, supportsCustom };
+  } catch (error) {
+    console.error('Check packages constraint error:', error);
     return { success: false, error: error.message };
   }
 });
@@ -1035,173 +1382,7 @@ ipcMain.handle('update-member-receipts-fee-structure', async (event, memberId) =
 
 
 
-// Debug handler to check table structure
-ipcMain.handle('debug-table-info', async () => {
-  try {
-    const tableInfo = dbService.db.prepare("PRAGMA table_info(members)").all();
-    console.log('Current members table structure:', tableInfo);
-    return { success: true, data: tableInfo };
-  } catch (error) {
-    console.error('Debug table info error:', error);
-    return { success: false, error: error.message };
-  }
-});
-// Additional Enquiry operations
-ipcMain.handle('enquiries-get-by-id', async (event, id) => {
-  try {
-    const enquiry = dbService.getEnquiryById(id);
-    return { success: true, data: enquiry };
-  } catch (error) {
-    console.error('Get enquiry error:', error);
-    return { success: false, error: error.message };
-  }
-});
-
-ipcMain.handle('enquiries-update', async (event, id, enquiryData) => {
-  try {
-    const success = dbService.updateEnquiry(id, enquiryData);
-    return { success };
-  } catch (error) {
-    console.error('Update enquiry error:', error);
-    return { success: false, error: error.message };
-  }
-});
-
-ipcMain.handle('enquiries-delete', async (event, id) => {
-  try {
-    const success = dbService.deleteEnquiry(id);
-    return { success };
-  } catch (error) {
-    console.error('Delete enquiry error:', error);
-    return { success: false, error: error.message };
-  }
-});
-
-ipcMain.handle('enquiries-convert-to-member', async (event, enquiryId, memberData) => {
-  try {
-    const result = dbService.convertEnquiryToMember(enquiryId, memberData);
-    return result;
-  } catch (error) {
-    console.error('Convert enquiry to member error:', error);
-    return { success: false, error: error.message };
-  }
-});
-
-ipcMain.handle('get-monthly-transaction-report', async (event, month, year) => {
-  try {
-    console.log('IPC handler called for monthly transaction report:', { month, year });
-    if (!dbService) {
-      throw new Error('Database service not initialized');
-    }
-    const result = dbService.getMonthlyTransactionReport(month, year);
-    console.log('Monthly transaction report result:', result);
-    return result;
-  } catch (error) {
-    console.error('Get monthly transaction report error:', error);
-    return { success: false, error: error.message };
-  }
-});
-
-ipcMain.handle('generate-enquiry-number', async () => {
-  try {
-    return dbService.generateEnquiryNumber();
-  } catch (error) {
-    console.error('Generate enquiry number error:', error);
-    return `ENQ${Date.now()}`;
-  }
-});
-
-// Body Measurements IPC handlers
-ipcMain.handle('body-measurements-create', async (event, measurementData) => {
-  try {
-    const success = dbService.createBodyMeasurement(measurementData);
-    return { success };
-  } catch (error) {
-    console.error('Create body measurement error:', error);
-    return { success: false, error: error.message };
-  }
-});
-
-ipcMain.handle('body-measurements-get-all', async () => {
-  try {
-    const measurements = dbService.getAllBodyMeasurements();
-    return { success: true, data: measurements };
-  } catch (error) {
-    console.error('Get all body measurements error:', error);
-    return { success: false, error: error.message };
-  }
-});
-
-ipcMain.handle('body-measurements-get-by-member', async (event, memberId) => {
-  try {
-    const measurements = dbService.getBodyMeasurementsByMember(memberId);
-    return { success: true, data: measurements };
-  } catch (error) {
-    console.error('Get body measurements by member error:', error);
-    return { success: false, error: error.message };
-  }
-});
-
-ipcMain.handle('body-measurements-update', async (event, id, measurementData) => {
-  try {
-    const success = dbService.updateBodyMeasurement(id, measurementData);
-    return { success };
-  } catch (error) {
-    console.error('Update body measurement error:', error);
-    return { success: false, error: error.message };
-  }
-});
-
-ipcMain.handle('body-measurements-delete', async (event, id) => {
-  try {
-    const success = dbService.deleteBodyMeasurement(id);
-    return { success };
-  } catch (error) {
-    console.error('Delete body measurement error:', error);
-    return { success: false, error: error.message };
-  }
-});
-
-// Expense IPC handlers
-ipcMain.handle('expense-get-all', async () => {
-  try {
-    const expenses = dbService.getAllExpenses();
-    return { success: true, data: expenses };
-  } catch (error) {
-    console.error('Get all expenses error:', error);
-    return { success: false, error: error.message };
-  }
-});
-
-ipcMain.handle('expense-get-by-id', async (event, id) => {
-  try {
-    const expense = dbService.getExpenseById(id);
-    return { success: true, data: expense };
-  } catch (error) {
-    console.error('Get expense by ID error:', error);
-    return { success: false, error: error.message };
-  }
-});
-
-ipcMain.handle('expense-create', async (event, expenseData) => {
-  try {
-    const success = dbService.createExpense(expenseData);
-    return { success };
-  } catch (error) {
-    console.error('Create expense error:', error);
-    return { success: false, error: error.message };
-  }
-});
-
-ipcMain.handle('expense-update', async (event, id, expenseData) => {
-  try {
-    const success = dbService.updateExpense(id, expenseData);
-    return { success };
-  } catch (error) {
-    console.error('Update expense error:', error);
-    return { success: false, error: error.message };
-  }
-});
+console.log('Electron main process ready with enquiry support and master settings');
 
 ipcMain.handle('expense-delete', async (event, id) => {
   try {
@@ -1250,6 +1431,16 @@ ipcMain.handle('whatsapp-get-all-messages', async () => {
     return { success: true, data: messages };
   } catch (error) {
     console.error('Get all WhatsApp messages error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('whatsapp-get-pending-messages', async () => {
+  try {
+    const messages = dbService.getPendingWhatsAppMessages();
+    return { success: true, data: messages };
+  } catch (error) {
+    console.error('Get pending WhatsApp messages error:', error);
     return { success: false, error: error.message };
   }
 });
@@ -1386,4 +1577,252 @@ ipcMain.handle('whatsapp-create-message', async (event, messageData) => {
   }
 });
 
-console.log('Electron main process ready with enquiry support');
+// Master Settings IPC handlers
+
+// Package Management
+ipcMain.handle('master-packages-get-all', async () => {
+  try {
+    const packages = dbService.getAllPackages();
+    return { success: true, data: packages };
+  } catch (error) {
+    console.error('Get all packages error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('master-packages-create', async (event, packageData) => {
+  try {
+    const success = dbService.createPackage(packageData);
+    return { success };
+  } catch (error) {
+    console.error('Create package error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('master-packages-update', async (event, id, packageData) => {
+  try {
+    const success = dbService.updatePackage(id, packageData);
+    return { success };
+  } catch (error) {
+    console.error('Update package error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('master-packages-delete', async (event, id) => {
+  try {
+    const success = dbService.deletePackage(id);
+    return { success };
+  } catch (error) {
+    console.error('Delete package error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Tax Settings Management
+ipcMain.handle('master-tax-settings-get-all', async () => {
+  try {
+    const taxSettings = dbService.getAllTaxSettings();
+    return { success: true, data: taxSettings };
+  } catch (error) {
+    console.error('Get all tax settings error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('master-tax-settings-create', async (event, taxData) => {
+  try {
+    const success = dbService.createTaxSetting(taxData);
+    return { success };
+  } catch (error) {
+    console.error('Create tax setting error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('master-tax-settings-update', async (event, id, taxData) => {
+  try {
+    const success = dbService.updateTaxSetting(id, taxData);
+    return { success };
+  } catch (error) {
+    console.error('Update tax setting error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('master-tax-settings-delete', async (event, id) => {
+  try {
+    const success = dbService.deleteTaxSetting(id);
+    return { success };
+  } catch (error) {
+    console.error('Delete tax setting error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Expense Categories Management
+ipcMain.handle('master-expense-categories-get-all', async () => {
+  try {
+    const categories = dbService.getAllExpenseCategories();
+    return { success: true, data: categories };
+  } catch (error) {
+    console.error('Get all expense categories error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('master-expense-categories-create', async (event, categoryData) => {
+  try {
+    const success = dbService.createExpenseCategory(categoryData);
+    return { success };
+  } catch (error) {
+    console.error('Create expense category error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('master-expense-categories-update', async (event, id, categoryData) => {
+  try {
+    const success = dbService.updateExpenseCategory(id, categoryData);
+    return { success };
+  } catch (error) {
+    console.error('Update expense category error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('master-expense-categories-delete', async (event, id) => {
+  try {
+    const success = dbService.deleteExpenseCategory(id);
+    return { success };
+  } catch (error) {
+    console.error('Delete expense category error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Occupations Management
+ipcMain.handle('master-occupations-get-all', async () => {
+  try {
+    const occupations = dbService.getAllOccupations();
+    return { success: true, data: occupations };
+  } catch (error) {
+    console.error('Get all occupations error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('master-occupations-create', async (event, occupationData) => {
+  try {
+    const success = dbService.createOccupation(occupationData);
+    return { success };
+  } catch (error) {
+    console.error('Create occupation error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('master-occupations-update', async (event, id, occupationData) => {
+  try {
+    const success = dbService.updateOccupation(id, occupationData);
+    return { success };
+  } catch (error) {
+    console.error('Update occupation error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('master-occupations-delete', async (event, id) => {
+  try {
+    const success = dbService.deleteOccupation(id);
+    return { success };
+  } catch (error) {
+    console.error('Delete occupation error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Payment Types Management
+ipcMain.handle('master-payment-types-get-all', async () => {
+  try {
+    const paymentTypes = dbService.getAllPaymentTypes();
+    return { success: true, data: paymentTypes };
+  } catch (error) {
+    console.error('Get all payment types error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('master-payment-types-create', async (event, paymentData) => {
+  try {
+    const success = dbService.createPaymentType(paymentData);
+    return { success };
+  } catch (error) {
+    console.error('Create payment type error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('master-payment-types-update', async (event, id, paymentData) => {
+  try {
+    const success = dbService.updatePaymentType(id, paymentData);
+    return { success };
+  } catch (error) {
+    console.error('Update payment type error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('master-payment-types-delete', async (event, id) => {
+  try {
+    const success = dbService.deletePaymentType(id);
+    return { success };
+  } catch (error) {
+    console.error('Delete payment type error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Body Measurement Fields Management
+ipcMain.handle('master-body-measurement-fields-get-all', async () => {
+  try {
+    const fields = dbService.getAllBodyMeasurementFields();
+    return { success: true, data: fields };
+  } catch (error) {
+    console.error('Get all body measurement fields error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('master-body-measurement-fields-create', async (event, fieldData) => {
+  try {
+    const success = dbService.createBodyMeasurementField(fieldData);
+    return { success };
+  } catch (error) {
+    console.error('Create body measurement field error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('master-body-measurement-fields-update', async (event, id, fieldData) => {
+  try {
+    const success = dbService.updateBodyMeasurementField(id, fieldData);
+    return { success };
+  } catch (error) {
+    console.error('Update body measurement field error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('master-body-measurement-fields-delete', async (event, id) => {
+  try {
+    const success = dbService.deleteBodyMeasurementField(id);
+    return { success };
+  } catch (error) {
+    console.error('Delete body measurement field error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+console.log('Electron main process ready with enquiry support and master settings');

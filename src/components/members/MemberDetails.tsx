@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import {
@@ -27,11 +28,15 @@ import {
   UserCheck,
   DollarSign,
   RefreshCw,
-  AlertTriangle
+  AlertTriangle,
+  MoreVertical,
+  Plus,
+  ClipboardCheck
 } from 'lucide-react';
 import { LegacyMember as Member, Receipt as ReceiptType, db } from '@/utils/database';
 import { ReceiptPDFGenerator } from '@/utils/pdfUtils';
 import { calculateBMI, getBMICategory, getBMIBadgeColor, convertCmToFeetInches, getIdealWeightRange } from '@/utils/bmiUtils';
+import { useNavigate } from 'react-router-dom';
 
 interface MemberDetailsProps {
   member: Member;
@@ -220,6 +225,7 @@ export const MemberDetails: React.FC<MemberDetailsProps> = ({ member, isOpen, on
   const [memberReceipts, setMemberReceipts] = useState<ReceiptType[]>([]);
   const [loadingReceipts, setLoadingReceipts] = useState(false);
   const [dueAmount, setDueAmount] = useState<{ dueAmount: number; unpaidInvoices: number }>({ dueAmount: 0, unpaidInvoices: 0 });
+  const navigate = useNavigate();
 
   useEffect(() => {
     if (isOpen && member) {
@@ -296,6 +302,51 @@ export const MemberDetails: React.FC<MemberDetailsProps> = ({ member, isOpen, on
     return age;
   };
 
+  const handleCreateReceipt = () => {
+    onClose();
+    navigate('/receipts', { 
+      state: { 
+        selectedMember: {
+          id: member.id,
+          name: member.name,
+          mobile: member.mobileNo,
+          email: member.email,
+          customMemberId: member.customMemberId
+        },
+        openForm: true
+      }
+    });
+  };
+
+  const handleRecordAttendance = () => {
+    onClose();
+    navigate('/attendance', { 
+      state: { 
+        selectedMember: {
+          id: member.id,
+          name: member.name,
+          profileImage: member.memberImage
+        },
+        openForm: true
+      }
+    });
+  };
+
+  const handleRecordMeasurements = () => {
+    onClose();
+    navigate('/measurements', { 
+      state: { 
+        selectedMember: {
+          id: member.id,
+          name: member.name,
+          height: member.height,
+          weight: member.weight
+        },
+        openForm: true
+      }
+    });
+  };
+
   if (!member) return null;
 
   return (
@@ -338,43 +389,70 @@ export const MemberDetails: React.FC<MemberDetailsProps> = ({ member, isOpen, on
               </div>
             </div>
 
-            {/* ID Card Preview in Header */}
-            {member.idProofImage && (
-              <div className="flex flex-col items-center space-y-2">
-                <div className="relative">
-                  <div className="h-12 w-18 border border-gray-300 rounded-lg overflow-hidden bg-gray-50">
-                    <img
-                      src={member.idProofImage}
-                      alt="Official ID Card"
-                      className="h-full w-full object-cover"
-                    />
-                  </div>
-                </div>
-                <Dialog>
-                  <DialogTrigger asChild>
-                    <Button variant="outline" size="sm" className="flex items-center space-x-1">
-                      <Eye className="h-3 w-3" />
-                      <span className="text-xs">View ID</span>
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent className="max-w-2xl">
-                    <DialogHeader>
-                      <DialogTitle className="flex items-center space-x-2">
-                        <CreditCard className="h-5 w-5" />
-                        <span>Official ID Card - {member.name}</span>
-                      </DialogTitle>
-                    </DialogHeader>
-                    <div className="flex justify-center p-4">
+            <div className="flex items-center space-x-2">
+              {/* Action Dropdown */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" className="flex items-center space-x-2">
+                    <Plus className="h-4 w-4" />
+                    <span>Actions</span>
+                    <MoreVertical className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-56">
+                  <DropdownMenuItem onClick={handleCreateReceipt} className="flex items-center space-x-2">
+                    <Receipt className="h-4 w-4" />
+                    <span>Create Receipt</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={handleRecordAttendance} className="flex items-center space-x-2">
+                    <ClipboardCheck className="h-4 w-4" />
+                    <span>Record Attendance</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={handleRecordMeasurements} className="flex items-center space-x-2">
+                    <Scale className="h-4 w-4" />
+                    <span>Record Body Measurements</span>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+
+              {/* ID Card Preview in Header */}
+              {member.idProofImage && (
+                <div className="flex flex-col items-center space-y-2">
+                  <div className="relative">
+                    <div className="h-12 w-18 border border-gray-300 rounded-lg overflow-hidden bg-gray-50">
                       <img
                         src={member.idProofImage}
                         alt="Official ID Card"
-                        className="max-w-full max-h-96 object-contain rounded-lg border"
+                        className="h-full w-full object-cover"
                       />
                     </div>
-                  </DialogContent>
-                </Dialog>
-              </div>
-            )}
+                  </div>
+                  <Dialog>
+                    <DialogTrigger asChild>
+                      <Button variant="outline" size="sm" className="flex items-center space-x-1">
+                        <Eye className="h-3 w-3" />
+                        <span className="text-xs">View ID</span>
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent className="max-w-2xl">
+                      <DialogHeader>
+                        <DialogTitle className="flex items-center space-x-2">
+                          <CreditCard className="h-5 w-5" />
+                          <span>Official ID Card - {member.name}</span>
+                        </DialogTitle>
+                      </DialogHeader>
+                      <div className="flex justify-center p-4">
+                        <img
+                          src={member.idProofImage}
+                          alt="Official ID Card"
+                          className="max-w-full max-h-96 object-contain rounded-lg border"
+                        />
+                      </div>
+                    </DialogContent>
+                  </Dialog>
+                </div>
+              )}
+            </div>
           </DialogTitle>
         </DialogHeader>
 
@@ -718,12 +796,7 @@ export const MemberDetails: React.FC<MemberDetailsProps> = ({ member, isOpen, on
                   </div>
                   <div className="flex justify-between text-xs text-blue-600">
                     <span>Amount Paid:</span>
-                    <span>₹{(() => {
-                      // Use the database-calculated due amount to determine paid amount
-                      const totalAmount = (member.registrationFee || 0) + (member.packageFee || member.membershipFees || 0) - (member.discount || 0);
-                      const actualDueAmount = member.due_amount || member.dueAmount || dueAmount.dueAmount || 0;
-                      return Math.max(0, totalAmount - actualDueAmount);
-                    })()}</span>
+                    <span>₹{member.paidAmount || member.paid_amount || 0}</span>
                   </div>
                   <div className={`flex justify-between text-sm font-semibold border-t pt-1 ${(member.due_amount || member.dueAmount || dueAmount.dueAmount || 0) > 0
                     ? 'text-red-600'

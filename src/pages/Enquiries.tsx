@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { SidebarTrigger, useSidebar } from '@/components/ui/sidebar';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { LegacyEnquiry, db } from '@/utils/database';
@@ -42,6 +43,7 @@ export const Enquiries: React.FC = () => {
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [enquiryToDelete, setEnquiryToDelete] = useState<LegacyEnquiry | null>(null);
   const [loading, setLoading] = useState(true);
+  const { state: sidebarState } = useSidebar();
   const { toast } = useToast();
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -214,9 +216,12 @@ export const Enquiries: React.FC = () => {
   return (
     <div className="animate-fade-in">
       <div className="sticky top-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b px-6 py-4 flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold bg-gradient-to-r from-gym-primary to-primary-glow bg-clip-text text-transparent">Enquiries</h1>
-          <p className="text-muted-foreground">Manage gym enquiries and convert leads to members</p>
+        <div className="flex items-center gap-3">
+          {sidebarState === 'collapsed' && <SidebarTrigger />}
+          <div>
+            <h1 className="text-3xl font-bold bg-gradient-to-r from-gym-primary to-primary-glow bg-clip-text text-transparent">Enquiries</h1>
+            <p className="text-muted-foreground">Manage gym enquiries and convert leads to members</p>
+          </div>
         </div>
         <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
           <DialogTrigger asChild>

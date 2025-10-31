@@ -156,36 +156,9 @@ export const db = {
           await DatabaseService.createInvoice(invoiceData);
           console.log('Invoice created for member:', memberData.name, 'Amount:', totalPayable);
   
-          // Auto-generate receipt if autoGenerateReceipt is true and fees > 0
-          if (autoGenerateReceipt && totalPayable > 0) {
-            const receiptCreated = await db.createMembershipReceipt({
-              ...convertedData,
-              // Ensure all fee structure data is included
-              registration_fee: registrationFee,
-              package_fee: packageFee,
-              discount: discount,
-              plan_type: convertedData.plan_type,
-              payment_mode: convertedData.payment_mode,
-              mobile_no: convertedData.mobile_no,
-              email: convertedData.email,
-              custom_member_id: convertedData.custom_member_id,
-              subscription_start_date: convertedData.subscription_start_date,
-              subscription_end_date: convertedData.subscription_end_date,
-              // Ensure paid amount is correctly passed for receipt generation
-              paidAmount: memberData.paidAmount || 0,
-              paid_amount: memberData.paidAmount || 0,
-            }, 'System');
-            
-            if (receiptCreated) {
-              console.log('✅ Membership receipt auto-generated for member:', memberData.name, 'with paid amount:', memberData.paidAmount);
-              
-              // Sync member totals after receipt creation
-              await db.syncMemberReceiptData(id);
-              console.log('✅ Member totals synced after receipt creation');
-            } else {
-              console.error('❌ Failed to create membership receipt for member:', memberData.name);
-            }
-          }
+          // Receipt creation is handled by the database layer (createMember method)
+          // to prevent duplicate receipts. The database layer has proper duplicate checking.
+          console.log('📝 Receipt creation handled by database layer to prevent duplicates');
         } catch (error) {
           console.error('Failed to create invoice or receipt:', error);
           // Don't fail member creation if invoice/receipt generation fails
@@ -1050,7 +1023,7 @@ export const db = {
     // Calculate subscription end date
     calculateSubscriptionEndDate: (startDate: string, planType: string): string => {
       const start = new Date(startDate);
-      let endDate = new Date(start);
+      const endDate = new Date(start);
   
       switch (planType) {
         case 'monthly':

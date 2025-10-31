@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { SidebarTrigger, useSidebar } from '@/components/ui/sidebar';
 import { useToast } from '@/hooks/use-toast';
 import { LegacyStaff, db } from '@/utils/database';
 import { StaffForm } from '@/components/staff/StaffForm';
@@ -26,6 +27,7 @@ export const Staff: React.FC = () => {
   const [staffToDelete, setStaffToDelete] = useState<LegacyStaff | null>(null);
   const [loading, setLoading] = useState(true);
   const { toast } = useToast();
+  const { state: sidebarState } = useSidebar();
 
   const loadStaff = useCallback(async () => {
     try {
@@ -182,9 +184,12 @@ export const Staff: React.FC = () => {
   return (
     <div className="animate-fade-in">
       <div className="sticky top-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b px-6 py-4 flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold bg-gradient-to-r from-gym-primary to-primary-glow bg-clip-text text-transparent">Staff</h1>
-          <p className="text-muted-foreground">Manage your gym staff</p>
+        <div className="flex items-center gap-3">
+          {sidebarState === 'collapsed' && <SidebarTrigger />}
+          <div>
+            <h1 className="text-3xl font-bold bg-gradient-to-r from-gym-primary to-primary-glow bg-clip-text text-transparent">Staff</h1>
+            <p className="text-muted-foreground">Manage your gym staff</p>
+          </div>
         </div>
         <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
           <DialogTrigger asChild>

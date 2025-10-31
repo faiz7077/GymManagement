@@ -30,6 +30,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Users
   getAllUsers: () => ipcRenderer.invoke('users-get-all'),
   createUser: (userData) => ipcRenderer.invoke('users-create', userData),
+  updateUserPassword: (userId, newPassword) => ipcRenderer.invoke('users-update-password', userId, newPassword),
   
   // Members
   getAllMembers: () => ipcRenderer.invoke('members-get-all'),
@@ -37,7 +38,22 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getMemberById: (id) => ipcRenderer.invoke('members-get-by-id', id),
   createMember: (memberData) => ipcRenderer.invoke('members-create', memberData),
   updateMember: (id, memberData) => ipcRenderer.invoke('members-update', id, memberData),
-  deleteMember: (id) => ipcRenderer.invoke('members-delete', id),
+  deleteMember: (id, deletedBy, deletionReason) => ipcRenderer.invoke('members-delete', id, deletedBy, deletionReason),
+  
+  // Test IPC
+  testIPC: () => ipcRenderer.invoke('test-ipc'),
+  
+  // Partial Members
+  savePartialMember: (partialData) => ipcRenderer.invoke('members-save-partial', partialData),
+  isPartialMember: (memberId) => ipcRenderer.invoke('members-is-partial', memberId),
+  completePartialMember: (memberId, membershipData) => ipcRenderer.invoke('members-complete-partial', memberId, membershipData),
+  getPartialMembers: () => ipcRenderer.invoke('members-get-partial'),
+
+  // Deleted Members
+  getAllDeletedMembers: () => ipcRenderer.invoke('deleted-members-get-all'),
+  getDeletedMemberById: (id) => ipcRenderer.invoke('deleted-members-get-by-id', id),
+  restoreDeletedMember: (deletedMemberId) => ipcRenderer.invoke('deleted-members-restore', deletedMemberId),
+  permanentlyDeleteMember: (deletedMemberId) => ipcRenderer.invoke('deleted-members-permanent-delete', deletedMemberId),
   
   //Attendance
   getAllAttendance: () => ipcRenderer.invoke('getAllAttendance'),
@@ -60,9 +76,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getAllReceipts: () => ipcRenderer.invoke('receipts-get-all'),
   getMemberReceipts: () => ipcRenderer.invoke('receipts-get-member-only'),
   getReceiptsByMember: (memberId) => ipcRenderer.invoke('receipts-get-by-member', memberId),
+  getMemberReceiptHistory: (memberId) => ipcRenderer.invoke('receipts-get-member-history', memberId),
   createReceipt: (receiptData) => ipcRenderer.invoke('receipts-create', receiptData),
   updateReceipt: (id, receiptData) => ipcRenderer.invoke('receipts-update', id, receiptData),
   deleteReceipt: (id) => ipcRenderer.invoke('receipts-delete', id),
+  
+  // Receipt versioning functions
+  createReceiptVersion: (receiptData) => ipcRenderer.invoke('receipts-create-version', receiptData),
+  markReceiptAsSuperseded: (receiptId) => ipcRenderer.invoke('receipts-mark-superseded', receiptId),
+  getReceiptHistory: (originalReceiptId) => ipcRenderer.invoke('receipts-get-history', originalReceiptId),
   
   // Staff salary receipts
   createStaffSalaryReceipt: (staffId, staffName, amount, paymentType, description, createdBy) => 
@@ -103,20 +125,28 @@ contextBridge.exposeInMainWorld('electronAPI', {
   updateInvoicePayment: (invoiceId, paidAmount) => ipcRenderer.invoke('update-invoice-payment', invoiceId, paidAmount),
   getMemberDueAmount: (memberId) => ipcRenderer.invoke('get-member-due-amount', memberId),
   payMemberDueAmount: (memberId, paymentAmount, paymentType, createdBy) => ipcRenderer.invoke('pay-member-due-amount', memberId, paymentAmount, paymentType, createdBy),
+  findMemberByMobile: (mobileNumber) => ipcRenderer.invoke('find-member-by-mobile', mobileNumber),
+  getMemberPaymentHistory: (memberId) => ipcRenderer.invoke('get-member-payment-history', memberId),
 
   // Utilities
   generateId: () => ipcRenderer.invoke('generate-id'),
   generateReceiptNumber: () => ipcRenderer.invoke('generate-receipt-number'),
   generateInvoiceNumber: () => ipcRenderer.invoke('generate-invoice-number'),
+  generateMemberNumber: () => ipcRenderer.invoke('generate-member-number'),
+  updateMemberNumber: (memberId, newMemberNumber) => ipcRenderer.invoke('update-member-number', memberId, newMemberNumber),
+  checkMemberNumberAvailable: (memberNumber, excludeMemberId) => ipcRenderer.invoke('check-member-number-available', memberNumber, excludeMemberId),
   renewMembership: (memberId, planType, membershipFees, createdBy) => ipcRenderer.invoke('renew-membership', memberId, planType, membershipFees, createdBy),
   updateMemberReceiptsInfo: (memberId) => ipcRenderer.invoke('update-member-receipts-info', memberId),
   updateMemberReceiptsFeeStructure: (memberId) => ipcRenderer.invoke('update-member-receipts-fee-structure', memberId),
   recalculateMemberTotals: (memberId) => ipcRenderer.invoke('recalculate-member-totals', memberId),
-  getMemberDueAmount: (memberId) => ipcRenderer.invoke('get-member-due-amount', memberId),
   fixReceiptAmounts: () => ipcRenderer.invoke('fix-receipt-amounts'),
   
   // Subscription status
   updateAllSubscriptionStatuses: () => ipcRenderer.invoke('update-all-subscription-statuses'),
+  
+  // Migrations
+  forcePackagesMigration: () => ipcRenderer.invoke('force-packages-migration'),
+  checkPackagesConstraint: () => ipcRenderer.invoke('check-packages-constraint'),
   
   // Expenses
   getAllExpenses: () => ipcRenderer.invoke('expense-get-all'),
@@ -130,6 +160,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   
   // WhatsApp Automation
   getAllWhatsAppMessages: () => ipcRenderer.invoke('whatsapp-get-all-messages'),
+  getPendingWhatsAppMessages: () => ipcRenderer.invoke('whatsapp-get-pending-messages'),
   retryWhatsAppMessage: (messageId) => ipcRenderer.invoke('whatsapp-retry-message', messageId),
   triggerBirthdayMessages: () => ipcRenderer.invoke('whatsapp-trigger-birthday-messages'),
   getTodaysBirthdayMembers: () => ipcRenderer.invoke('whatsapp-get-todays-birthday-members'),
@@ -143,7 +174,43 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getSetting: (key) => ipcRenderer.invoke('settings-get', key),
   setSetting: (key, value) => ipcRenderer.invoke('settings-set', key, value),
   updateWhatsAppTemplate: (messageType, templateContent) => ipcRenderer.invoke('whatsapp-update-template', messageType, templateContent),
-  createWhatsAppMessage: (messageData) => ipcRenderer.invoke('whatsapp-create-message', messageData)
+  createWhatsAppMessage: (messageData) => ipcRenderer.invoke('whatsapp-create-message', messageData),
+  
+  // Master Settings - Package Management
+  masterPackagesGetAll: () => ipcRenderer.invoke('master-packages-get-all'),
+  masterPackagesCreate: (packageData) => ipcRenderer.invoke('master-packages-create', packageData),
+  masterPackagesUpdate: (id, packageData) => ipcRenderer.invoke('master-packages-update', id, packageData),
+  masterPackagesDelete: (id) => ipcRenderer.invoke('master-packages-delete', id),
+  
+  // Master Settings - Tax Settings Management
+  masterTaxSettingsGetAll: () => ipcRenderer.invoke('master-tax-settings-get-all'),
+  masterTaxSettingsCreate: (taxData) => ipcRenderer.invoke('master-tax-settings-create', taxData),
+  masterTaxSettingsUpdate: (id, taxData) => ipcRenderer.invoke('master-tax-settings-update', id, taxData),
+  masterTaxSettingsDelete: (id) => ipcRenderer.invoke('master-tax-settings-delete', id),
+  
+  // Master Settings - Expense Categories Management
+  masterExpenseCategoriesGetAll: () => ipcRenderer.invoke('master-expense-categories-get-all'),
+  masterExpenseCategoriesCreate: (categoryData) => ipcRenderer.invoke('master-expense-categories-create', categoryData),
+  masterExpenseCategoriesUpdate: (id, categoryData) => ipcRenderer.invoke('master-expense-categories-update', id, categoryData),
+  masterExpenseCategoriesDelete: (id) => ipcRenderer.invoke('master-expense-categories-delete', id),
+  
+  // Master Settings - Occupations Management
+  masterOccupationsGetAll: () => ipcRenderer.invoke('master-occupations-get-all'),
+  masterOccupationsCreate: (occupationData) => ipcRenderer.invoke('master-occupations-create', occupationData),
+  masterOccupationsUpdate: (id, occupationData) => ipcRenderer.invoke('master-occupations-update', id, occupationData),
+  masterOccupationsDelete: (id) => ipcRenderer.invoke('master-occupations-delete', id),
+  
+  // Master Settings - Payment Types Management
+  masterPaymentTypesGetAll: () => ipcRenderer.invoke('master-payment-types-get-all'),
+  masterPaymentTypesCreate: (paymentData) => ipcRenderer.invoke('master-payment-types-create', paymentData),
+  masterPaymentTypesUpdate: (id, paymentData) => ipcRenderer.invoke('master-payment-types-update', id, paymentData),
+  masterPaymentTypesDelete: (id) => ipcRenderer.invoke('master-payment-types-delete', id),
+  
+  // Master Settings - Body Measurement Fields Management
+  masterBodyMeasurementFieldsGetAll: () => ipcRenderer.invoke('master-body-measurement-fields-get-all'),
+  masterBodyMeasurementFieldsCreate: (fieldData) => ipcRenderer.invoke('master-body-measurement-fields-create', fieldData),
+  masterBodyMeasurementFieldsUpdate: (id, fieldData) => ipcRenderer.invoke('master-body-measurement-fields-update', id, fieldData),
+  masterBodyMeasurementFieldsDelete: (id) => ipcRenderer.invoke('master-body-measurement-fields-delete', id)
 });
 
 // Remove the loading text when the page is ready

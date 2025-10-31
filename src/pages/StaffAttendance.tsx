@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { SidebarTrigger, useSidebar } from '@/components/ui/sidebar';
 import { toast } from 'sonner';
 import { db } from '@/utils/database';
 import { StaffAttendanceForm } from '@/components/staff-attendance/StaffAttendanceForm';
@@ -31,6 +32,7 @@ export function StaffAttendancePage() {
   const [selectedAttendance, setSelectedAttendance] = useState<StaffAttendance | null>(null);
   const [isDetailsDialogOpen, setIsDetailsDialogOpen] = useState(false);
   const [loading, setLoading] = useState(true);
+  const { state: sidebarState } = useSidebar();
 
   useEffect(() => {
     loadStaffAttendance();
@@ -146,9 +148,12 @@ export function StaffAttendancePage() {
     <div className="space-y-6">
       {/* Header */}
       <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Staff Attendance</h1>
-          <p className="text-gray-600">Track and manage staff attendance records</p>
+        <div className="flex items-center gap-3">
+          {sidebarState === 'collapsed' && <SidebarTrigger />}
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Staff Attendance</h1>
+            <p className="text-gray-600">Track and manage staff attendance records</p>
+          </div>
         </div>
         <Dialog open={isCheckInDialogOpen} onOpenChange={setIsCheckInDialogOpen}>
           <DialogTrigger asChild>

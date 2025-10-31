@@ -32,6 +32,8 @@ interface ReceiptDetailsProps {
 export const ReceiptDetails: React.FC<ReceiptDetailsProps> = ({ receipt, isOpen, onClose, onRefresh }) => {
   const [isDownloading, setIsDownloading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [receiptHistory, setReceiptHistory] = useState<Receipt[]>([]);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const { toast } = useToast();
 
   // Debug: Log receipt data when component receives it
@@ -46,12 +48,31 @@ export const ReceiptDetails: React.FC<ReceiptDetailsProps> = ({ receipt, isOpen,
     }
   }, [receipt, isOpen]);
 
+  // Load receipt history for the member
+  const loadReceiptHistory = async (memberId: string) => {
+    setIsLoadingHistory(true);
+    try {
+      const history = await db.getMemberReceiptHistory(memberId);
+      setReceiptHistory(history);
+    } catch (error) {
+      console.error('Error loading receipt history:', error);
+      setReceiptHistory([]);
+    } finally {
+      setIsLoadingHistory(false);
+    }
+  };
+
   // Refresh receipt data when dialog opens
   useEffect(() => {
     if (isOpen && onRefresh) {
       onRefresh();
     }
-  }, [isOpen, onRefresh]);
+    
+    // Load receipt history when dialog opens and receipt is available
+    if (isOpen && receipt?.member_id) {
+      loadReceiptHistory(receipt.member_id);
+    }
+  }, [isOpen, onRefresh, receipt?.member_id]);
 
   if (!receipt) return null;
 
@@ -225,6 +246,20 @@ export const ReceiptDetails: React.FC<ReceiptDetailsProps> = ({ receipt, isOpen,
                 <td>Amount Paid:</td>
                 <td><div class="amount">₹${receipt.amount.toFixed(2)}</div></td>
               </tr>
+              ${(receipt.cgst || 0) > 0 || (receipt.sigst || 0) > 0 ? `
+              <tr>
+                <td>CGST:</td>
+                <td>₹${(receipt.cgst || 0).toFixed(2)}</td>
+              </tr>
+              <tr>
+                <td>SGST:</td>
+                <td>₹${(receipt.sigst || 0).toFixed(2)}</td>
+              </tr>
+              <tr>
+                <td>Total Tax:</td>
+                <td><strong>₹${((receipt.cgst || 0) + (receipt.sigst || 0)).toFixed(2)}</strong></td>
+              </tr>
+              ` : ''}
               <tr>
                 <td>Processed By:</td>
                 <td>${receipt.created_by}</td>
@@ -622,6 +657,28 @@ export const ReceiptDetails: React.FC<ReceiptDetailsProps> = ({ receipt, isOpen,
                         ₹{(receipt.due_amount || 0).toFixed(2)}
                       </span>
                     </div>
+                    {((receipt.cgst || 0) > 0 || (receipt.sigst || 0) > 0) && (
+                      <>
+                        <div className="flex justify-between items-center py-2 border-b border-muted">
+                          <span className="text-sm font-medium">CGST</span>
+                          <span className="text-sm font-mono bg-yellow-50 px-3 py-1 rounded text-yellow-800">
+                            ₹{(receipt.cgst || 0).toFixed(2)}
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center py-2 border-b border-muted">
+                          <span className="text-sm font-medium">SGST</span>
+                          <span className="text-sm font-mono bg-yellow-50 px-3 py-1 rounded text-yellow-800">
+                            ₹{(receipt.sigst || 0).toFixed(2)}
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center py-2 border-b border-muted">
+                          <span className="text-sm font-medium">Total Tax</span>
+                          <span className="text-sm font-mono bg-orange-50 px-3 py-1 rounded text-orange-800">
+                            ₹{((receipt.cgst || 0) + (receipt.sigst || 0)).toFixed(2)}
+                          </span>
+                        </div>
+                      </>
+                    )}
                     <div className="flex justify-between items-center py-2">
                       <span className="text-sm font-medium">Generated</span>
                       <span className="text-sm text-muted-foreground">
@@ -633,6 +690,76 @@ export const ReceiptDetails: React.FC<ReceiptDetailsProps> = ({ receipt, isOpen,
               </Card>
             </div>
           </div>
+
+          {/* Receipt History */}
+          {receiptHistory.length > 1 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center space-x-2">
+                  <FileText className="h-5 w-5" />
+                  <span>Receipt History for {receipt.member_name}</span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  {isLoadingHistory ? (
+                    <div className="text-center py-4">
+                      <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary mx-auto"></div>
+                      <p className="text-sm text-muted-foreground mt-2">Loading history...</p>
+                    </div>
+                  ) : (
+                    receiptHistory.map((historyReceipt, index) => (
+                      <div 
+                        key={historyReceipt.id} 
+                        className={`flex items-center justify-between p-3 rounded-lg border ${
+                          historyReceipt.id === receipt.id 
+                            ? 'bg-primary/10 border-primary/30' 
+                            : 'bg-muted/30 border-muted'
+                        }`}
+                      >
+                        <div className="flex items-center space-x-3">
+                          <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${
+                            historyReceipt.id === receipt.id 
+                              ? 'bg-primary text-primary-foreground' 
+                              : 'bg-muted-foreground text-white'
+                          }`}>
+                            {historyReceipt.receipt_number}
+                          </div>
+                          <div>
+                            <p className="text-sm font-medium">
+                              {historyReceipt.id === receipt.id ? 'Current Receipt' : `Receipt #${historyReceipt.receipt_number}`}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              {formatDate(historyReceipt.created_at, 'PPP')} • {historyReceipt.payment_type}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-sm font-bold">₹{historyReceipt.amount.toFixed(2)}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {historyReceipt.description?.includes('New Membership') ? 'New' : 
+                             historyReceipt.description?.includes('Renewal') ? 'Renewal' : 'Payment'}
+                          </p>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+                <div className="mt-4 pt-3 border-t">
+                  <div className="flex justify-between text-sm">
+                    <span className="font-medium">Total Receipts:</span>
+                    <span>{receiptHistory.length}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="font-medium">Total Amount Paid:</span>
+                    <span className="font-bold">
+                      ₹{receiptHistory.reduce((sum, r) => sum + (r.amount_paid || r.amount), 0).toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Footer Summary */}
           <Card className="bg-gradient-to-r from-green-50 to-green-100 border-green-200">

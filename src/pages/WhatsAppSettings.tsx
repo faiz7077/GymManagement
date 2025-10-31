@@ -6,6 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
+import { SidebarTrigger, useSidebar } from '@/components/ui/sidebar';
 import { useToast } from '@/hooks/use-toast';
 import { db } from '@/utils/database';
 
@@ -36,6 +37,7 @@ export const WhatsAppSettings: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [testPhone, setTestPhone] = useState('');
   const { toast } = useToast();
+  const { state: sidebarState } = useSidebar();
 
   useEffect(() => {
     loadSettings();
@@ -147,11 +149,14 @@ export const WhatsAppSettings: React.FC = () => {
   return (
     <div className="animate-fade-in">
       <div className="sticky top-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b px-6 py-4 flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold bg-gradient-to-r from-gym-primary to-primary-glow bg-clip-text text-transparent">
-            WhatsApp Settings
-          </h1>
-          <p className="text-muted-foreground">Configure WhatsApp automation settings and message templates</p>
+        <div className="flex items-center gap-3">
+          {sidebarState === 'collapsed' && <SidebarTrigger />}
+          <div>
+            <h1 className="text-3xl font-bold bg-gradient-to-r from-gym-primary to-primary-glow bg-clip-text text-transparent">
+              WhatsApp Settings
+            </h1>
+            <p className="text-muted-foreground">Configure WhatsApp automation settings and message templates</p>
+          </div>
         </div>
         <Button onClick={handleSaveSettings} disabled={loading} className="gap-2">
           <Save className="h-4 w-4" />

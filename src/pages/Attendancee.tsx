@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Search, Calendar as CalendarIcon, Plus, Eye } from 'lucide-react';
+import { useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -8,6 +9,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Calendar } from '@/components/ui/calendar';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { SidebarTrigger, useSidebar } from '@/components/ui/sidebar';
 import { useToast } from '@/hooks/use-toast';
 import { LegacyAttendance as Attendance, db } from '@/utils/database';
 import { format } from 'date-fns';
@@ -25,7 +27,10 @@ export const AttendancePage: React.FC = () => {
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false);
   const [isCheckOutDialogOpen, setIsCheckOutDialogOpen] = useState(false);
   const [attendanceToCheckOut, setAttendanceToCheckOut] = useState<Attendance | null>(null);
+  const [prefilledMember, setPrefilledMember] = useState<any>(null);
   const { toast } = useToast();
+  const { state: sidebarState } = useSidebar();
+  const location = useLocation();
 
   const getInitials = (name: string) => {
     return name.split(' ').map(n => n[0]).join('').toUpperCase();
@@ -60,6 +65,16 @@ export const AttendancePage: React.FC = () => {
   useEffect(() => { loadAttendance(); }, [loadAttendance]);
   useEffect(() => { filterAttendance(); }, [filterAttendance]);
 
+  // Handle navigation state from MemberDetails
+  useEffect(() => {
+    if (location.state?.selectedMember && location.state?.openForm) {
+      setPrefilledMember(location.state.selectedMember);
+      setIsCheckInDialogOpen(true);
+      // Clear the state to prevent reopening on refresh
+      window.history.replaceState({}, document.title);
+    }
+  }, [location.state]);
+
   const handleCheckIn = async (memberId: string, memberName: string, profileImage?: string) => {
     try {
       console.log('Checking in member:', { memberId, memberName, profileImage }); // Debug log
@@ -67,6 +82,7 @@ export const AttendancePage: React.FC = () => {
       if (success) {
         await loadAttendance();
         setIsCheckInDialogOpen(false);
+        setPrefilledMember(null);
         toast({ title: "Success", description: `${memberName} has been checked in.` });
       } else { throw new Error('Failed to check in member'); }
     } catch (error) {
@@ -95,9 +111,12 @@ export const AttendancePage: React.FC = () => {
   return (
     <div className="animate-fade-in">
       <div className="sticky top-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b px-6 py-4 flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold bg-gradient-to-r from-gym-primary to-primary-glow bg-clip-text text-transparent">Attendance</h1>
-          <p className="text-muted-foreground">Manage daily member check-ins and check-outs</p>
+        <div className="flex items-center gap-3">
+          {sidebarState === 'collapsed' && <SidebarTrigger />}
+          <div>
+            <h1 className="text-3xl font-bold bg-gradient-to-r from-gym-primary to-primary-glow bg-clip-text text-transparent">Attendance</h1>
+            <p className="text-muted-foreground">Manage daily member check-ins and check-outs</p>
+          </div>
         </div>
         <Dialog open={isCheckInDialogOpen} onOpenChange={setIsCheckInDialogOpen}>
           <DialogTrigger asChild>
@@ -109,7 +128,11 @@ export const AttendancePage: React.FC = () => {
             </DialogHeader>
             <AttendaceForm
               onSubmit={handleCheckIn}
-              onCancel={() => setIsCheckInDialogOpen(false)}
+              onCancel={() => {
+                setIsCheckInDialogOpen(false);
+                setPrefilledMember(null);
+              }}
+              prefilledMember={prefilledMember}
             />
           </DialogContent>
         </Dialog>

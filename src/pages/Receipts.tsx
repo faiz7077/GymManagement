@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Plus, Search, Edit, Trash2, Eye, Filter, Download, Receipt as ReceiptIcon, FolderOpen, RefreshCw } from 'lucide-react';
+import { Plus, Search, Edit, Trash2, Eye, Filter, Download, Receipt as ReceiptIcon, FolderOpen, RefreshCw, History } from 'lucide-react';
+import { useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { SidebarTrigger, useSidebar } from '@/components/ui/sidebar';
 import { useToast } from '@/hooks/use-toast';
 import { Receipt, db } from '@/utils/database';
 import { ReceiptForm } from '@/components/receipts/ReceiptForm';
@@ -23,9 +25,14 @@ export const Receipts: React.FC = () => {
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [isHistoryDialogOpen, setIsHistoryDialogOpen] = useState(false);
   const [receiptToDelete, setReceiptToDelete] = useState<Receipt | null>(null);
+  const [receiptHistory, setReceiptHistory] = useState<Receipt[]>([]);
   const [loading, setLoading] = useState(true);
+  const [prefilledMember, setPrefilledMember] = useState<unknown>(null);
   const { toast } = useToast();
+  const { state: sidebarState } = useSidebar();
+  const location = useLocation();
 
   // Safe date formatting function
   const formatDate = (dateString: string, formatStr: string = 'PPP') => {
@@ -46,12 +53,12 @@ export const Receipts: React.FC = () => {
       const receiptData = await db.getAllReceipts();
 
       // Debug: Check if receipts have amount_paid and due_amount
-      console.log('Loaded receipts with amount data:', receiptData.slice(0, 2).map(r => ({
-        receipt_number: r.receipt_number,
-        amount: r.amount,
-        amount_paid: r.amount_paid,
-        due_amount: r.due_amount
-      })));
+      // console.log('Loaded receipts with amount data:', receiptData.slice(0, 2).map(r => ({
+      //   receipt_number: r.receipt_number,
+      //   amount: r.amount,
+      //   amount_paid: r.amount_paid,
+      //   due_amount: r.due_amount
+      // })));
 
       // Filter to show only member receipts (exclude staff receipts)
       const memberReceipts = receiptData.filter(receipt =>
@@ -112,6 +119,16 @@ export const Receipts: React.FC = () => {
   useEffect(() => {
     filterReceipts();
   }, [filterReceipts]);
+
+  // Handle navigation state from MemberDetails
+  useEffect(() => {
+    if (location.state?.selectedMember && location.state?.openForm) {
+      setPrefilledMember(location.state.selectedMember);
+      setIsAddDialogOpen(true);
+      // Clear the state to prevent reopening on refresh
+      window.history.replaceState({}, document.title);
+    }
+  }, [location.state]);
 
   const handleAddReceipt = async (receiptData: Omit<Receipt, 'id'>) => {
     try {
@@ -175,7 +192,11 @@ export const Receipts: React.FC = () => {
     if (!selectedReceipt) return;
 
     try {
-      const success = await db.updateReceipt(selectedReceipt.id, receiptData);
+      console.log('🔄 Creating new receipt version instead of updating existing one');
+      
+      // Instead of updating, create a new receipt with the updated data
+      const success = await db.createReceiptVersion(selectedReceipt.id, receiptData);
+      
       if (success) {
         // Sync member and receipt data if this was a member receipt
         if (selectedReceipt.member_id) {
@@ -197,13 +218,13 @@ export const Receipts: React.FC = () => {
 
         toast({
           title: "Receipt Updated",
-          description: `Receipt has been updated successfully.`,
+          description: `New receipt version created. Original receipt preserved in history.`,
         });
       } else {
-        throw new Error('Failed to update receipt');
+        throw new Error('Failed to create receipt version');
       }
     } catch (error) {
-      console.error('Error updating receipt:', error);
+      console.error('Error creating receipt version:', error);
       toast({
         title: "Error",
         description: "Failed to update receipt. Please try again.",
@@ -280,6 +301,28 @@ export const Receipts: React.FC = () => {
       toast({
         title: "Download Failed",
         description: "Failed to download PDF receipt. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleViewHistory = async (receipt: Receipt) => {
+    try {
+      console.log('📋 Loading receipt history for:', receipt.id);
+      const history = await db.getReceiptHistory(receipt.original_receipt_id || receipt.id);
+      setReceiptHistory(history);
+      setSelectedReceipt(receipt);
+      setIsHistoryDialogOpen(true);
+      
+      toast({
+        title: "Receipt History",
+        description: `Found ${history.length} version(s) of this receipt.`,
+      });
+    } catch (error) {
+      console.error('Error loading receipt history:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load receipt history. Please try again.",
         variant: "destructive",
       });
     }
@@ -365,9 +408,12 @@ export const Receipts: React.FC = () => {
   return (
     <div className="animate-fade-in">
       <div className="sticky top-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b px-6 py-4 flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold bg-gradient-to-r from-gym-primary to-primary-glow bg-clip-text text-transparent">Receipts</h1>
-          <p className="text-muted-foreground">Manage payment receipts and transactions</p>
+        <div className="flex items-center gap-3">
+          {sidebarState === 'collapsed' && <SidebarTrigger />}
+          <div>
+            <h1 className="text-3xl font-bold bg-gradient-to-r from-gym-primary to-primary-glow bg-clip-text text-transparent">Receipts</h1>
+            <p className="text-muted-foreground">Manage payment receipts and transactions</p>
+          </div>
         </div>
         <div className="flex items-center space-x-2">
           <Button
@@ -435,7 +481,14 @@ export const Receipts: React.FC = () => {
               <DialogHeader>
                 <DialogTitle>Create New Receipt</DialogTitle>
               </DialogHeader>
-              <ReceiptForm onSubmit={handleAddReceipt} onMemberUpdate={handleMemberUpdate} />
+              <ReceiptForm 
+                onSubmit={(data) => {
+                  handleAddReceipt(data);
+                  setPrefilledMember(null);
+                }} 
+                onMemberUpdate={handleMemberUpdate} 
+                prefilledMember={prefilledMember}
+              />
             </DialogContent>
           </Dialog>
         </div>
@@ -539,7 +592,19 @@ export const Receipts: React.FC = () => {
                             <ReceiptIcon className="h-6 w-6 text-primary" />
                           </div>
                           <div>
-                            <h3 className="font-semibold text-foreground">{receipt.receipt_number}</h3>
+                            <div className="flex items-center gap-2">
+                              <h3 className="font-semibold text-foreground">{receipt.receipt_number}</h3>
+                              {receipt.version_number && receipt.version_number > 1 && (
+                                <Badge variant="outline" className="text-xs">
+                                  v{receipt.version_number}
+                                </Badge>
+                              )}
+                              {receipt.is_current_version === false && (
+                                <Badge variant="secondary" className="text-xs">
+                                  Superseded
+                                </Badge>
+                              )}
+                            </div>
                             <p className="text-sm text-muted-foreground">{receipt.member_name}</p>
                             <div className="flex items-center space-x-2 mt-1 flex-wrap">
                               <span className="text-xs text-muted-foreground">Member ID: {receipt.custom_member_id || 'Not Set'} </span>
@@ -614,6 +679,14 @@ export const Receipts: React.FC = () => {
                             title="Edit Receipt"
                           >
                             <Edit className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleViewHistory(receipt)}
+                            title="View Receipt History"
+                          >
+                            <History className="h-4 w-4" />
                           </Button>
                           <Button
                             variant="ghost"
@@ -694,6 +767,101 @@ export const Receipts: React.FC = () => {
                   Delete Receipt
                 </Button>
               </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Receipt History Dialog */}
+        <Dialog open={isHistoryDialogOpen} onOpenChange={setIsHistoryDialogOpen}>
+          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <History className="h-5 w-5" />
+                Receipt History - {selectedReceipt?.receipt_number}
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <p className="text-muted-foreground">
+                This shows all versions of the receipt. When a receipt is updated, a new version is created while preserving the original.
+              </p>
+              
+              {receiptHistory.length === 0 ? (
+                <p className="text-center py-8 text-muted-foreground">No history available for this receipt.</p>
+              ) : (
+                <div className="space-y-4">
+                  {receiptHistory.map((historyReceipt, index) => (
+                    <Card key={historyReceipt.id} className={`${historyReceipt.is_current_version ? 'border-green-500 bg-green-50' : 'border-gray-200'}`}>
+                      <CardHeader className="pb-3">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <Badge variant={historyReceipt.is_current_version ? "default" : "secondary"}>
+                              {historyReceipt.is_current_version ? 'Current Version' : `Version ${historyReceipt.version_number || index + 1}`}
+                            </Badge>
+                            <span className="text-sm text-muted-foreground">
+                              Receipt #{historyReceipt.receipt_number}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm text-muted-foreground">
+                              {formatDate(historyReceipt.created_at, 'PPp')}
+                            </span>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleDownloadPDF(historyReceipt)}
+                              title="Download PDF"
+                            >
+                              <Download className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </div>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                          <div>
+                            <span className="font-medium">Member:</span>
+                            <p className="text-muted-foreground">{historyReceipt.member_name}</p>
+                          </div>
+                          <div>
+                            <span className="font-medium">Amount:</span>
+                            <p className="text-muted-foreground">₹{historyReceipt.amount?.toFixed(2) || '0.00'}</p>
+                          </div>
+                          <div>
+                            <span className="font-medium">Paid:</span>
+                            <p className="text-green-600">₹{historyReceipt.amount_paid?.toFixed(2) || '0.00'}</p>
+                          </div>
+                          <div>
+                            <span className="font-medium">Due:</span>
+                            <p className={`${(historyReceipt.due_amount || 0) > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                              ₹{historyReceipt.due_amount?.toFixed(2) || '0.00'}
+                            </p>
+                          </div>
+                          <div>
+                            <span className="font-medium">Payment Type:</span>
+                            <p className="text-muted-foreground capitalize">{historyReceipt.payment_type}</p>
+                          </div>
+                          <div>
+                            <span className="font-medium">Created By:</span>
+                            <p className="text-muted-foreground">{historyReceipt.created_by}</p>
+                          </div>
+                          {historyReceipt.superseded_at && (
+                            <div>
+                              <span className="font-medium">Superseded:</span>
+                              <p className="text-muted-foreground">{formatDate(historyReceipt.superseded_at, 'PPp')}</p>
+                            </div>
+                          )}
+                          {historyReceipt.description && (
+                            <div className="col-span-2 md:col-span-4">
+                              <span className="font-medium">Description:</span>
+                              <p className="text-muted-foreground">{historyReceipt.description}</p>
+                            </div>
+                          )}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              )}
             </div>
           </DialogContent>
         </Dialog>

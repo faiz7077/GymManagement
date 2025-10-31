@@ -7,15 +7,20 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-node_modules
-dist
-dist-ssr
+# Node modules
+node_modules/
+
+# Vite output
+dist/
+dist-ssr/
+
+# Local environment files
 *.local
 
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
-.idea
+.idea/
 .DS_Store
 *.suo
 *.ntvs*
@@ -23,6 +28,28 @@ dist-ssr
 *.sln
 *.sw?
 
-
+# Electron build artifacts
 release/
+out/
+build/
 *.asar
+
+# Electron runtime data
+electron/data/
+electron/data/*
+electron/**/data/
+*.cache
+
+# SQLite database files (VERY IMPORTANT)
+*.db
+*.sqlite
+*.sqlite3
+
+# Avoid pushing prebuilt binaries and heavy folders
+electron/node_modules/
+electron/dist/
+electron/out/
+electron/release/
+
+# OS generated files
+Thumbs.db

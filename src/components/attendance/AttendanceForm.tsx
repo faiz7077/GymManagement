@@ -10,11 +10,16 @@ import { cn } from '@/lib/utils';
 interface CheckInFormProps {
   onSubmit: (memberId: string, memberName: string, profileImage?: string) => void;
   onCancel: () => void;
+  prefilledMember?: {
+    id: string;
+    name: string;
+    profileImage?: string;
+  };
 }
 
-export const AttendaceForm: React.FC<CheckInFormProps> = ({ onSubmit, onCancel }) => {
+export const AttendaceForm: React.FC<CheckInFormProps> = ({ onSubmit, onCancel, prefilledMember }) => {
   const [members, setMembers] = useState<Member[]>([]);
-  const [selectedMemberId, setSelectedMemberId] = useState<string>('');
+  const [selectedMemberId, setSelectedMemberId] = useState<string>(prefilledMember?.id || '');
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
