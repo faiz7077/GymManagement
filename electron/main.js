@@ -111,8 +111,132 @@ let dbService;
 let whatsappService;
 let whatsappIntegration;
 
+// function createWindow() {
+//   // Create the browser window
+//   mainWindow = new BrowserWindow({
+//     width: 1200,
+//     height: 800,
+//     minWidth: 1000,
+//     minHeight: 600,
+//     webPreferences: {
+//       nodeIntegration: false,
+//       contextIsolation: true,
+//       enableRemoteModule: false,
+//       preload: path.join(__dirname, 'preload.js'),
+//       webSecurity: true,
+//       allowRunningInsecureContent: false,
+//       experimentalFeatures: false
+//     },
+//     icon: path.join(__dirname, 'assets/icon.png'), // Add your app icon here
+//     show: false, // Don't show until ready
+//     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default'
+//   });
+
+//   // Show loading screen first
+//   mainWindow.loadFile(path.join(__dirname, 'loading.html'));
+
+//   // Then load the app
+//   // const startUrl = isDev
+//   //   ? 'http://localhost:5173'
+//   //   : `file://${path.join(__dirname, '../dist/index.html')}`;
+  
+
+//   // Wait a bit before loading the main app to show the loading screen
+//   // setTimeout(() => {
+//   //   mainWindow.loadURL(startUrl).catch(err => {
+//   //     console.error('Failed to load app:', err);
+//   //     // If we can't load the app in dev mode, show an error
+//   //     if (isDev) {
+//   //       // Don't automatically open DevTools, but still show the error
+//   //       mainWindow.webContents.executeJavaScript(`
+//   //         document.body.innerHTML = '<div style="padding: 20px; font-family: sans-serif;">
+//   //           <h1>Error: Could not connect to development server</h1>
+//   //           <p>Make sure Vite is running with <code>npm run dev</code> before starting Electron.</p>
+//   //           <pre style="background: #f0f0f0; padding: 10px; border-radius: 5px;">${err.toString()}</pre>
+//   //         </div>'
+//   //       `);
+//   //     }
+//   //   });
+//   // }, 500);
+//   // --- START OF NEW BLOCK ---
+
+//   // Log the dev status to be sure
+//   console.log(`[DEBUG] Booting window. isDev = ${isDev}`);
+
+//   // Then load the app
+//   const devUrl = 'http://localhost:5173';
+  
+//   // This is the most likely path, as explained before
+//   const prodPath = path.join(__dirname, '../dist/index.html');
+//   console.log(`[DEBUG] Production path set to: ${prodPath}`);
+
+
+//   // Wait a bit before loading the main app to show the loading screen
+//   setTimeout(() => {
+//     if (isDev) {
+//       // --- DEVELOPMENT ---
+//       console.log(`[DEBUG] Loading DEV server at: ${devUrl}`);
+//       mainWindow.loadURL(devUrl).catch(err => {
+//         console.error('Failed to load dev app:', err);
+//         // Show a more helpful error if the dev server isn't running
+//         mainWindow.webContents.executeJavaScript(`
+//           document.body.innerHTML = '<div style="padding: 20px; font-family: sans-serif;">
+//             <h1>Error: Could not connect to development server</h1>
+//             <p>Make sure Vite is running with <code>npm run dev</code> before starting Electron.</p>
+//             <pre style="background: #f0f0f0; padding: 10px; border-radius: 5px;">${err.toString()}</pre>
+//           </div>'
+//         `);
+//       });
+//     } else {
+//       // --- PRODUCTION ---
+//       console.log(`[DEBUG] Loading PRODUCTION file at: ${prodPath}`);
+//       // THIS IS THE FIX: using 'mainWindow.loadFile()'
+//       mainWindow.loadFile(prodPath).catch(err => {
+//         console.error('Failed to load production app:', err);
+//         console.error(`[DEBUG] Error details: ${err.toString()}`);
+//           // Show an error if the production file is missing
+//           mainWindow.webContents.executeJavaScript(`
+//           document.body.innerHTML = '<div style="padding: 20px; font-family: sans-serif;">
+//             <h1>Error: Failed to load application</h1>
+//             <p>The file at <code>${prodPath}</code> could not be loaded.</p>
+//             <pre style="background: #f0f0f0; padding: 10px; border-radius: 5px;">${err.toString()}</pre>
+//           </div>'
+//         `);
+//       });
+//     }
+//   }, 500);
+
+//   // --- END OF NEW BLOCK ---
+
+//   // Show window when ready to prevent visual flash
+//   mainWindow.once('ready-to-show', () => {
+//     mainWindow.show();
+
+//     // DevTools will not automatically open, but can be toggled with the menu option
+//     // or keyboard shortcut (Cmd+Alt+I on macOS, Ctrl+Shift+I on Windows/Linux)
+//   });
+
+//   // Filter out autofill console errors
+//   mainWindow.webContents.on('console-message', (event, level, message) => {
+//     if (message.includes('Autofill.enable') || message.includes('Autofill.setAddresses')) {
+//       event.preventDefault();
+//     }
+//   });
+
+//   // Handle window closed
+//   mainWindow.on('closed', () => {
+//     mainWindow = null;
+//   });
+
+//   // Handle external links
+//   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+//     shell.openExternal(url);
+//     return { action: 'deny' };
+//   });
+// }
+
+// Create application menu
 function createWindow() {
-  // Create the browser window
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
@@ -127,65 +251,91 @@ function createWindow() {
       allowRunningInsecureContent: false,
       experimentalFeatures: false
     },
-    icon: path.join(__dirname, 'assets/icon.png'), // Add your app icon here
-    show: false, // Don't show until ready
+    icon: path.join(__dirname, 'assets/icon.png'),
+    show: false,
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default'
   });
 
-  // Show loading screen first
+  // --- STEP 1: Show loading screen first
   mainWindow.loadFile(path.join(__dirname, 'loading.html'));
 
-  // Then load the app
-  const startUrl = isDev
-    ? 'http://localhost:5173'
-    : `file://${path.join(__dirname, '../dist/index.html')}`;
+  // --- STEP 2: Determine URL to load
+  const devUrl = 'http://localhost:5173';
+  const fs = require('fs');
 
-  // Wait a bit before loading the main app to show the loading screen
+  // Typical packaged paths for different environments
+  const distPath1 = path.join(process.resourcesPath, 'dist', 'index.html');
+  const distPath2 = path.join(process.resourcesPath, 'app.asar', 'dist', 'index.html');
+  const distPath3 = path.join(process.resourcesPath, 'app.asar.unpacked', 'dist', 'index.html');
+
+  let finalPath = null;
+
+  if (fs.existsSync(distPath1)) {
+    finalPath = distPath1;
+  } else if (fs.existsSync(distPath3)) {
+    finalPath = distPath3;
+  } else {
+    finalPath = distPath2;
+  }
+
+  console.log('[DEBUG] Final dist path:', finalPath);
+  console.log('[DEBUG] Environment:', isDev ? 'Development' : 'Production');
+
+  // --- STEP 3: Load proper page
   setTimeout(() => {
-    mainWindow.loadURL(startUrl).catch(err => {
-      console.error('Failed to load app:', err);
-      // If we can't load the app in dev mode, show an error
-      if (isDev) {
-        // Don't automatically open DevTools, but still show the error
-        mainWindow.webContents.executeJavaScript(`
-          document.body.innerHTML = '<div style="padding: 20px; font-family: sans-serif;">
-            <h1>Error: Could not connect to development server</h1>
-            <p>Make sure Vite is running with <code>npm run dev</code> before starting Electron.</p>
-            <pre style="background: #f0f0f0; padding: 10px; border-radius: 5px;">${err.toString()}</pre>
-          </div>'
-        `);
-      }
-    });
+    if (isDev) {
+      mainWindow
+        .loadURL(devUrl)
+        .catch((err) => {
+          console.error('❌ Failed to load dev server:', err);
+          mainWindow.webContents.executeJavaScript(`
+            document.body.innerHTML = '<div style="padding:20px;font-family:sans-serif;">
+              <h1>Could not connect to Vite dev server</h1>
+              <p>Run <code>npm run dev</code> before starting Electron.</p>
+              <pre>${err.toString()}</pre>
+            </div>';
+          `);
+        });
+    } else {
+      mainWindow
+        .loadFile(finalPath)
+        .catch((err) => {
+          console.error('❌ Failed to load production app:', err);
+          mainWindow.webContents.executeJavaScript(`
+            document.body.innerHTML = '<div style="padding:20px;font-family:sans-serif;">
+              <h1>Failed to load production app</h1>
+              <p>Could not find <code>${finalPath}</code></p>
+              <pre>${err.toString()}</pre>
+            </div>';
+          `);
+        });
+    }
   }, 500);
 
-  // Show window when ready to prevent visual flash
+  // --- STEP 4: Show when ready
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
-
-    // DevTools will not automatically open, but can be toggled with the menu option
-    // or keyboard shortcut (Cmd+Alt+I on macOS, Ctrl+Shift+I on Windows/Linux)
   });
 
-  // Filter out autofill console errors
+  // --- STEP 5: Filter console noise
   mainWindow.webContents.on('console-message', (event, level, message) => {
     if (message.includes('Autofill.enable') || message.includes('Autofill.setAddresses')) {
       event.preventDefault();
     }
   });
 
-  // Handle window closed
+  // --- STEP 6: Cleanup
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
 
-  // Handle external links
+  // --- STEP 7: Open external links in browser
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
     return { action: 'deny' };
   });
 }
 
-// Create application menu
 function createMenu() {
   const template = [
     {
@@ -516,10 +666,14 @@ ipcMain.handle('members-create', async (event, memberData) => {
 
 ipcMain.handle('members-update', async (event, id, memberData) => {
   try {
-    const success = dbService.updateMember(id, memberData);
+    // Ensure ID is a string for consistency
+    const stringId = String(id);
+    console.log('👤 IPC Update member:', { originalId: id, stringId, memberDataKeys: Object.keys(memberData) });
+    const success = dbService.updateMember(stringId, memberData);
+    console.log('👤 IPC Update result:', { success });
     return { success };
   } catch (error) {
-    console.error('Update member error:', error);
+    console.error('❌ Update member error:', error);
     return { success: false, error: error.message };
   }
 });
@@ -794,6 +948,51 @@ ipcMain.handle('staff-delete', async (event, id) => {
     return { success };
   } catch (error) {
     console.error('Delete staff error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Expenses
+ipcMain.handle('expense-get-all', async () => {
+  try {
+    const expenses = dbService.getAllExpenses();
+    return { success: true, data: expenses };
+  } catch (error) {
+    console.error('Get expenses error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('expense-create', async (event, expenseData) => {
+  try {
+    // Generate ID if not provided
+    if (!expenseData.id) {
+      expenseData.id = dbService.generateId();
+    }
+    const success = dbService.createExpense(expenseData);
+    return { success, data: { id: expenseData.id } };
+  } catch (error) {
+    console.error('Create expense error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('expense-update', async (event, id, expenseData) => {
+  try {
+    const success = dbService.updateExpense(id, expenseData);
+    return { success };
+  } catch (error) {
+    console.error('Update expense error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('expense-delete', async (event, id) => {
+  try {
+    const success = dbService.deleteExpense(id);
+    return { success };
+  } catch (error) {
+    console.error('Delete expense error:', error);
     return { success: false, error: error.message };
   }
 });
@@ -1384,16 +1583,6 @@ ipcMain.handle('update-member-receipts-fee-structure', async (event, memberId) =
 
 console.log('Electron main process ready with enquiry support and master settings');
 
-ipcMain.handle('expense-delete', async (event, id) => {
-  try {
-    const success = dbService.deleteExpense(id);
-    return { success };
-  } catch (error) {
-    console.error('Delete expense error:', error);
-    return { success: false, error: error.message };
-  }
-});
-
 ipcMain.handle('expense-get-by-category', async (event, category) => {
   try {
     const expenses = dbService.getExpensesByCategory(category);
@@ -1592,6 +1781,10 @@ ipcMain.handle('master-packages-get-all', async () => {
 
 ipcMain.handle('master-packages-create', async (event, packageData) => {
   try {
+    // Generate ID if not provided
+    if (!packageData.id) {
+      packageData.id = `pkg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    }
     const success = dbService.createPackage(packageData);
     return { success };
   } catch (error) {
@@ -1602,7 +1795,11 @@ ipcMain.handle('master-packages-create', async (event, packageData) => {
 
 ipcMain.handle('master-packages-update', async (event, id, packageData) => {
   try {
-    const success = dbService.updatePackage(id, packageData);
+    // Ensure ID is a string for consistency
+    const stringId = String(id);
+    console.log('📦 IPC Update package:', { originalId: id, stringId, packageData });
+    const success = dbService.updatePackage(stringId, packageData);
+    console.log('📦 IPC Update result:', { success });
     return { success };
   } catch (error) {
     console.error('Update package error:', error);
@@ -1612,7 +1809,11 @@ ipcMain.handle('master-packages-update', async (event, id, packageData) => {
 
 ipcMain.handle('master-packages-delete', async (event, id) => {
   try {
-    const success = dbService.deletePackage(id);
+    // Ensure ID is a string for consistency
+    const stringId = String(id);
+    console.log('📦 IPC Delete package:', { originalId: id, stringId });
+    const success = dbService.deletePackage(stringId);
+    console.log('📦 IPC Delete result:', { success });
     return { success };
   } catch (error) {
     console.error('Delete package error:', error);
@@ -1674,6 +1875,10 @@ ipcMain.handle('master-expense-categories-get-all', async () => {
 
 ipcMain.handle('master-expense-categories-create', async (event, categoryData) => {
   try {
+    // Generate ID if not provided
+    if (!categoryData.id) {
+      categoryData.id = `cat-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    }
     const success = dbService.createExpenseCategory(categoryData);
     return { success };
   } catch (error) {
@@ -1684,7 +1889,11 @@ ipcMain.handle('master-expense-categories-create', async (event, categoryData) =
 
 ipcMain.handle('master-expense-categories-update', async (event, id, categoryData) => {
   try {
-    const success = dbService.updateExpenseCategory(id, categoryData);
+    // Ensure ID is a string for consistency
+    const stringId = String(id);
+    console.log('📂 IPC Update expense category:', { originalId: id, stringId, categoryData });
+    const success = dbService.updateExpenseCategory(stringId, categoryData);
+    console.log('📂 IPC Update result:', { success });
     return { success };
   } catch (error) {
     console.error('Update expense category error:', error);
@@ -1694,7 +1903,11 @@ ipcMain.handle('master-expense-categories-update', async (event, id, categoryDat
 
 ipcMain.handle('master-expense-categories-delete', async (event, id) => {
   try {
-    const success = dbService.deleteExpenseCategory(id);
+    // Ensure ID is a string for consistency
+    const stringId = String(id);
+    console.log('📂 IPC Delete expense category:', { originalId: id, stringId });
+    const success = dbService.deleteExpenseCategory(stringId);
+    console.log('📂 IPC Delete result:', { success });
     return { success };
   } catch (error) {
     console.error('Delete expense category error:', error);
@@ -1715,6 +1928,10 @@ ipcMain.handle('master-occupations-get-all', async () => {
 
 ipcMain.handle('master-occupations-create', async (event, occupationData) => {
   try {
+    // Generate ID if not provided
+    if (!occupationData.id) {
+      occupationData.id = `occ-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    }
     const success = dbService.createOccupation(occupationData);
     return { success };
   } catch (error) {
@@ -1725,7 +1942,11 @@ ipcMain.handle('master-occupations-create', async (event, occupationData) => {
 
 ipcMain.handle('master-occupations-update', async (event, id, occupationData) => {
   try {
-    const success = dbService.updateOccupation(id, occupationData);
+    // Ensure ID is a string for consistency
+    const stringId = String(id);
+    console.log('💼 IPC Update occupation:', { originalId: id, stringId, occupationData });
+    const success = dbService.updateOccupation(stringId, occupationData);
+    console.log('💼 IPC Update result:', { success });
     return { success };
   } catch (error) {
     console.error('Update occupation error:', error);
@@ -1735,7 +1956,11 @@ ipcMain.handle('master-occupations-update', async (event, id, occupationData) =>
 
 ipcMain.handle('master-occupations-delete', async (event, id) => {
   try {
-    const success = dbService.deleteOccupation(id);
+    // Ensure ID is a string for consistency
+    const stringId = String(id);
+    console.log('💼 IPC Delete occupation:', { originalId: id, stringId });
+    const success = dbService.deleteOccupation(stringId);
+    console.log('💼 IPC Delete result:', { success });
     return { success };
   } catch (error) {
     console.error('Delete occupation error:', error);
@@ -1756,6 +1981,10 @@ ipcMain.handle('master-payment-types-get-all', async () => {
 
 ipcMain.handle('master-payment-types-create', async (event, paymentData) => {
   try {
+    // Generate ID if not provided
+    if (!paymentData.id) {
+      paymentData.id = `pay-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    }
     const success = dbService.createPaymentType(paymentData);
     return { success };
   } catch (error) {
@@ -1766,7 +1995,11 @@ ipcMain.handle('master-payment-types-create', async (event, paymentData) => {
 
 ipcMain.handle('master-payment-types-update', async (event, id, paymentData) => {
   try {
-    const success = dbService.updatePaymentType(id, paymentData);
+    // Ensure ID is a string for consistency
+    const stringId = String(id);
+    console.log('💳 IPC Update payment type:', { originalId: id, stringId, paymentData });
+    const success = dbService.updatePaymentType(stringId, paymentData);
+    console.log('💳 IPC Update result:', { success });
     return { success };
   } catch (error) {
     console.error('Update payment type error:', error);
@@ -1776,7 +2009,11 @@ ipcMain.handle('master-payment-types-update', async (event, id, paymentData) => 
 
 ipcMain.handle('master-payment-types-delete', async (event, id) => {
   try {
-    const success = dbService.deletePaymentType(id);
+    // Ensure ID is a string for consistency
+    const stringId = String(id);
+    console.log('💳 IPC Delete payment type:', { originalId: id, stringId });
+    const success = dbService.deletePaymentType(stringId);
+    console.log('💳 IPC Delete result:', { success });
     return { success };
   } catch (error) {
     console.error('Delete payment type error:', error);
@@ -1797,6 +2034,10 @@ ipcMain.handle('master-body-measurement-fields-get-all', async () => {
 
 ipcMain.handle('master-body-measurement-fields-create', async (event, fieldData) => {
   try {
+    // Generate ID if not provided
+    if (!fieldData.id) {
+      fieldData.id = `bmf-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    }
     const success = dbService.createBodyMeasurementField(fieldData);
     return { success };
   } catch (error) {
@@ -1807,7 +2048,11 @@ ipcMain.handle('master-body-measurement-fields-create', async (event, fieldData)
 
 ipcMain.handle('master-body-measurement-fields-update', async (event, id, fieldData) => {
   try {
-    const success = dbService.updateBodyMeasurementField(id, fieldData);
+    // Ensure ID is a string for consistency
+    const stringId = String(id);
+    console.log('📏 IPC Update body measurement field:', { originalId: id, stringId, fieldData });
+    const success = dbService.updateBodyMeasurementField(stringId, fieldData);
+    console.log('📏 IPC Update result:', { success });
     return { success };
   } catch (error) {
     console.error('Update body measurement field error:', error);
@@ -1817,7 +2062,11 @@ ipcMain.handle('master-body-measurement-fields-update', async (event, id, fieldD
 
 ipcMain.handle('master-body-measurement-fields-delete', async (event, id) => {
   try {
-    const success = dbService.deleteBodyMeasurementField(id);
+    // Ensure ID is a string for consistency
+    const stringId = String(id);
+    console.log('📏 IPC Delete body measurement field:', { originalId: id, stringId });
+    const success = dbService.deleteBodyMeasurementField(stringId);
+    console.log('📏 IPC Delete result:', { success });
     return { success };
   } catch (error) {
     console.error('Delete body measurement field error:', error);

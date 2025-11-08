@@ -82,7 +82,7 @@ class DatabaseService {
         paid_amount REAL DEFAULT 0,
         subscription_start_date TEXT,
         subscription_end_date TEXT,
-        subscription_status TEXT CHECK (subscription_status IN ('active', 'expiring_soon', 'expired')) DEFAULT 'active',
+        subscription_status TEXT CHECK (subscription_status IN ('active', 'expiring_soon', 'expired', 'pending')) DEFAULT 'active',
         medical_issues TEXT,
         goals TEXT,
         height REAL,
@@ -661,6 +661,9 @@ class DatabaseService {
       // Migration 2: Update master_packages duration_type constraint
       this.migratePackagesConstraint();
 
+      // Migration 3: Update members subscription_status constraint to include 'pending'
+      this.migrateSubscriptionStatusConstraint();
+
       console.log('Database migrations completed successfully');
     } catch (error) {
       console.error('Error running migrations:', error);
@@ -889,7 +892,216 @@ class DatabaseService {
     }
   }
 
+  migrateSubscriptionStatusConstraint() {
+    try {
+      console.log('🔄 Checking members subscription_status constraint migration...');
 
+      // First, clean up any leftover members_old table from failed migrations
+      try {
+        const oldTableExists = this.db.prepare(`
+          SELECT name FROM sqlite_master 
+          WHERE type='table' AND name='members_old'
+        `).get();
+
+        if (oldTableExists) {
+          console.log('⚠️ Found leftover members_old table, cleaning up...');
+          this.db.exec('DROP TABLE IF EXISTS members_old');
+          console.log('✅ Cleaned up members_old table');
+        }
+      } catch (cleanupError) {
+        console.error('Error cleaning up old table:', cleanupError);
+      }
+
+      // Check if table exists
+      const tableExists = this.db.prepare(`
+        SELECT name FROM sqlite_master 
+        WHERE type='table' AND name='members'
+      `).get();
+
+      if (!tableExists) {
+        console.log('❌ members table does not exist, skipping migration');
+        return;
+      }
+
+      // Get current table schema
+      const tableInfo = this.db.prepare(`
+        SELECT sql FROM sqlite_master 
+        WHERE type='table' AND name='members'
+      `).get();
+
+      if (!tableInfo || !tableInfo.sql) {
+        console.log('❌ Could not get table schema, skipping migration');
+        return;
+      }
+
+      // Check if constraint already includes 'pending'
+      const hasNewConstraint = tableInfo.sql.includes("'pending'");
+
+      if (hasNewConstraint) {
+        console.log('✅ members subscription_status constraint already updated, skipping migration');
+        return;
+      }
+
+      console.log('🔄 Migrating members subscription_status constraint to include pending status...');
+
+      // Get existing data first
+      const existingMembers = this.db.prepare('SELECT * FROM members').all();
+      console.log('📦 Found existing members:', existingMembers.length);
+
+      // Disable foreign keys temporarily
+      this.db.exec('PRAGMA foreign_keys = OFF');
+
+      // Start transaction
+      const migration = this.db.transaction(() => {
+        // Step 1: Rename existing table
+        this.db.exec('ALTER TABLE members RENAME TO members_old');
+
+        // Step 2: Create new table with updated constraint (recreate the full schema)
+        this.db.exec(`
+          CREATE TABLE members (
+            id TEXT PRIMARY KEY,
+            custom_member_id TEXT UNIQUE,
+            name TEXT NOT NULL,
+            email TEXT NOT NULL,
+            address TEXT DEFAULT 'Not specified',
+            telephone_no TEXT,
+            mobile_no TEXT DEFAULT '0000000000',
+            occupation TEXT DEFAULT 'Not specified',
+            marital_status TEXT DEFAULT 'unmarried',
+            anniversary_date TEXT,
+            blood_group TEXT,
+            sex TEXT DEFAULT 'male',
+            date_of_birth TEXT DEFAULT '1990-01-01',
+            alternate_no TEXT,
+            member_image TEXT,
+            id_proof_image TEXT,
+            date_of_registration TEXT,
+            receipt_no TEXT,
+            payment_mode TEXT DEFAULT 'cash',
+            plan_type TEXT DEFAULT 'monthly',
+            services TEXT DEFAULT '["gym"]',
+            membership_fees REAL DEFAULT 0,
+            registration_fee REAL DEFAULT 0,
+            package_fee REAL DEFAULT 0,
+            discount REAL DEFAULT 0,
+            paid_amount REAL DEFAULT 0,
+            subscription_start_date TEXT,
+            subscription_end_date TEXT,
+            subscription_status TEXT CHECK (subscription_status IN ('active', 'expiring_soon', 'expired', 'pending')) DEFAULT 'active',
+            medical_issues TEXT,
+            goals TEXT,
+            height REAL,
+            weight REAL,
+            status TEXT NOT NULL CHECK (status IN ('active', 'inactive', 'frozen', 'partial')) DEFAULT 'active',
+            created_at TEXT NOT NULL,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+          )
+        `);
+
+        // Step 3: Insert existing data back, setting subscription_status to 'pending' for partial members
+        if (existingMembers.length > 0) {
+          const insertStmt = this.db.prepare(`
+            INSERT INTO members (
+              id, custom_member_id, name, email, address, telephone_no, mobile_no,
+              occupation, marital_status, anniversary_date, blood_group, sex,
+              date_of_birth, alternate_no, member_image, id_proof_image,
+              date_of_registration, receipt_no, payment_mode, plan_type, services,
+              membership_fees, registration_fee, package_fee, discount, paid_amount,
+              subscription_start_date, subscription_end_date, subscription_status,
+              medical_issues, goals, height, weight, status, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `);
+
+          for (const member of existingMembers) {
+            // Set subscription_status to 'pending' for partial members, otherwise keep existing status
+            const subscriptionStatus = member.status === 'partial' ? 'pending' : (member.subscription_status || 'active');
+            
+            insertStmt.run(
+              member.id,
+              member.custom_member_id,
+              member.name,
+              member.email,
+              member.address || 'Not specified',
+              member.telephone_no,
+              member.mobile_no || '0000000000',
+              member.occupation || 'Not specified',
+              member.marital_status || 'unmarried',
+              member.anniversary_date,
+              member.blood_group,
+              member.sex || 'male',
+              member.date_of_birth || '1990-01-01',
+              member.alternate_no,
+              member.member_image,
+              member.id_proof_image,
+              member.date_of_registration,
+              member.receipt_no,
+              member.payment_mode || 'cash',
+              member.plan_type || 'monthly',
+              member.services || '["gym"]',
+              member.membership_fees || 0,
+              member.registration_fee || 0,
+              member.package_fee || 0,
+              member.discount || 0,
+              member.paid_amount || 0,
+              member.subscription_start_date,
+              member.subscription_end_date,
+              subscriptionStatus,
+              member.medical_issues,
+              member.goals,
+              member.height,
+              member.weight,
+              member.status || 'active',
+              member.created_at,
+              member.updated_at || new Date().toISOString()
+            );
+          }
+        }
+
+        // Step 4: Drop old table
+        this.db.exec('DROP TABLE members_old');
+      });
+
+      // Execute migration
+      migration();
+
+      // Re-enable foreign keys
+      this.db.exec('PRAGMA foreign_keys = ON');
+
+      // Verify the old table was dropped
+      const oldTableStillExists = this.db.prepare(`
+        SELECT name FROM sqlite_master 
+        WHERE type='table' AND name='members_old'
+      `).get();
+
+      if (oldTableStillExists) {
+        console.log('⚠️ Old table still exists after migration, forcing cleanup...');
+        this.db.exec('DROP TABLE IF EXISTS members_old');
+      }
+
+      console.log('✅ members subscription_status constraint migration completed successfully');
+
+    } catch (error) {
+      console.error('❌ Error migrating members subscription_status constraint:', error);
+      
+      // Re-enable foreign keys in case of error
+      try {
+        this.db.exec('PRAGMA foreign_keys = ON');
+      } catch (fkError) {
+        console.error('Error re-enabling foreign keys:', fkError);
+      }
+
+      // Clean up any leftover tables
+      try {
+        this.db.exec('DROP TABLE IF EXISTS members_old');
+        console.log('✅ Cleaned up members_old table after error');
+      } catch (cleanupError) {
+        console.error('Error cleaning up after migration failure:', cleanupError);
+      }
+
+      // If migration fails, we don't want to break the app
+      console.log('Migration failed, but continuing with app startup...');
+    }
+  }
 
   initializeDefaultData() {
     // Check if users exist
@@ -1297,13 +1509,23 @@ class DatabaseService {
 
   updateMember(id, memberData) {
     try {
-      console.log('Updating member with ID:', id, 'Data:', memberData);
+      console.log('👤 Updating member with ID:', id);
+      console.log('📝 Member data keys:', Object.keys(memberData));
+      console.log('📝 Member data:', JSON.stringify(memberData, null, 2));
+
+      // Ensure ID is a string for consistency
+      const stringId = String(id);
+      console.log('🔑 ID conversion:', { originalId: id, stringId, idType: typeof id });
 
       // Get current member data to compare amounts
-      const currentMember = this.db.prepare('SELECT * FROM members WHERE id = ?').get(id);
+      const currentMember = this.db.prepare('SELECT * FROM members WHERE id = ?').get(stringId);
       if (!currentMember) {
+        console.error('❌ Member not found with ID:', stringId);
+        console.log('📋 Available member IDs:', this.db.prepare('SELECT id, name FROM members LIMIT 10').all());
         throw new Error('Member not found');
       }
+      
+      console.log('✅ Found member:', { id: currentMember.id, name: currentMember.name });
 
       // Check if subscription dates are being updated
       const subscriptionDatesUpdated = memberData.subscription_start_date !== undefined || memberData.subscription_end_date !== undefined;
@@ -1366,8 +1588,10 @@ class DatabaseService {
         memberData.height || null,
         memberData.weight || null,
         memberData.status || 'active',
-        id
+        stringId
       );
+
+      console.log('💾 Update result:', { changes: result.changes });
 
       // Update related receipts with new member information
       if (result.changes > 0) {
@@ -1391,14 +1615,14 @@ class DatabaseService {
             memberData.email,
             memberData.plan_type,
             memberData.payment_mode,
-            id
+            stringId
           );
 
           if (receiptUpdateResult.changes > 0) {
-            console.log(`Updated ${receiptUpdateResult.changes} receipts with new member information for member ${id}`);
+            console.log(`✅ Updated ${receiptUpdateResult.changes} receipts with new member information for member ${stringId}`);
           }
         } catch (receiptUpdateError) {
-          console.error('Error updating receipts with new member information:', receiptUpdateError);
+          console.error('❌ Error updating receipts with new member information:', receiptUpdateError);
           // Don't fail the member update if receipt update fails
         }
       }
@@ -1410,7 +1634,7 @@ class DatabaseService {
       // Handle payment amount changes properly
       if (result.changes > 0 && paidAmountChanged) {
         console.log('💰 Payment amount changed, updating receipts and due amounts...');
-        this.handleMemberPaymentUpdate(id, currentPaidAmount, newPaidAmount);
+        this.handleMemberPaymentUpdate(stringId, currentPaidAmount, newPaidAmount);
       }
 
       // Recalculate member totals if fee structure changed
@@ -1423,14 +1647,14 @@ class DatabaseService {
         );
 
         if (feeStructureChanged) {
-          this.recalculateMemberTotals(id);
+          this.recalculateMemberTotals(stringId);
         }
       }
 
       // Always update subscription status after updating member if subscription dates were updated
       if (subscriptionDatesUpdated) {
-        console.log('Subscription dates updated, updating subscription status for member:', id);
-        this.updateMemberSubscriptionStatus(id);
+        console.log('📅 Subscription dates updated, updating subscription status for member:', stringId);
+        this.updateMemberSubscriptionStatus(stringId);
       }
 
       console.log('Update result changes:', result.changes);
@@ -2538,23 +2762,15 @@ class DatabaseService {
     try {
       if (!memberId) return 0;
 
-      // Get current member data
-      const member = this.db.prepare('SELECT * FROM members WHERE id = ?').get(memberId);
-      if (!member) return 0;
-
-      // Calculate expected total from member's fee structure
-      const registrationFee = member.registration_fee || 0;
-      const packageFee = member.package_fee || member.membership_fees || 0;
-      const discount = member.discount || 0;
-      const expectedTotal = Math.max(0, registrationFee + packageFee - discount);
-
-      // Get actual paid amount
-      const paidAmount = member.paid_amount || 0;
-
-      // Calculate due amount
-      const dueAmount = Math.max(0, expectedTotal - paidAmount);
-
-      return dueAmount;
+      // Calculate total due amount from all receipts for this member
+      const dueResult = this.db.prepare(`
+        SELECT SUM(COALESCE(due_amount, 0)) as total_due
+        FROM receipts 
+        WHERE member_id = ? AND (receipt_category IS NULL OR receipt_category = 'member')
+      `).get(memberId);
+      
+      const totalDue = dueResult.total_due || 0;
+      return Math.max(0, totalDue);
     } catch (error) {
       console.error('Get member due amount error:', error);
       return 0;
@@ -3131,7 +3347,7 @@ class DatabaseService {
   // Update subscription status for a single member
   updateMemberSubscriptionStatus(memberId) {
     try {
-      console.log('Updating subscription status for member:', memberId);
+      console.log('🔄 Updating subscription status for member:', memberId);
 
       // Get current date in ISO format (YYYY-MM-DD)
       const currentDate = new Date().toISOString().split('T')[0];
@@ -3141,33 +3357,46 @@ class DatabaseService {
       sevenDaysFromNow.setDate(sevenDaysFromNow.getDate() + 7);
       const sevenDaysFromNowStr = sevenDaysFromNow.toISOString().split('T')[0];
 
-      // Get the member's subscription end date
-      const member = this.db.prepare('SELECT subscription_end_date FROM members WHERE id = ?').get(memberId);
+      // Get the member's subscription end date and current status
+      const member = this.db.prepare('SELECT subscription_end_date, status, subscription_status FROM members WHERE id = ?').get(memberId);
 
       if (!member || !member.subscription_end_date) {
-        console.log('Member not found or no subscription end date');
+        console.log('⚠️ Member not found or no subscription end date');
         return false;
       }
 
-      let newStatus = '';
+      console.log('📅 Member subscription info:', {
+        currentDate,
+        endDate: member.subscription_end_date,
+        currentStatus: member.status,
+        currentSubscriptionStatus: member.subscription_status
+      });
 
-      // Determine the appropriate status
+      let newSubscriptionStatus = '';
+      let newMemberStatus = member.status; // Keep current status by default
+
+      // Determine the appropriate subscription status
       if (member.subscription_end_date < currentDate) {
-        newStatus = 'expired';
+        newSubscriptionStatus = 'expired';
+        newMemberStatus = 'inactive'; // Set member to inactive if subscription expired
       } else if (member.subscription_end_date <= sevenDaysFromNowStr) {
-        newStatus = 'expiring_soon';
+        newSubscriptionStatus = 'expiring_soon';
+        newMemberStatus = 'active'; // Member should be active if subscription is still valid
       } else {
-        newStatus = 'active';
+        newSubscriptionStatus = 'active';
+        newMemberStatus = 'active'; // Member should be active if subscription is active
       }
 
-      // Update the member's subscription status
-      const updateStmt = this.db.prepare('UPDATE members SET subscription_status = ? WHERE id = ?');
-      const result = updateStmt.run(newStatus, memberId);
+      console.log('✨ New status:', { newSubscriptionStatus, newMemberStatus });
 
-      console.log(`Updated subscription status for member ${memberId} to ${newStatus}`);
+      // Update both subscription_status AND status fields
+      const updateStmt = this.db.prepare('UPDATE members SET subscription_status = ?, status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?');
+      const result = updateStmt.run(newSubscriptionStatus, newMemberStatus, memberId);
+
+      console.log(`✅ Updated member ${memberId}: subscription_status=${newSubscriptionStatus}, status=${newMemberStatus}, changes=${result.changes}`);
       return result.changes > 0;
     } catch (error) {
-      console.error('Error updating member subscription status:', error);
+      console.error('❌ Error updating member subscription status:', error);
       return false;
     }
   }
@@ -3291,40 +3520,26 @@ class DatabaseService {
 
   getMemberDueAmount(memberId) {
     try {
-      // Get member's total fees and paid amount
+      // Get member to verify they exist
       const member = this.db.prepare('SELECT * FROM members WHERE id = ?').get(memberId);
 
       if (!member) {
         return { dueAmount: 0, unpaidInvoices: 0 };
       }
 
-      // Calculate total fees
-      const registrationFee = member.registration_fee || 0;
-      const packageFee = member.package_fee || member.membership_fees || 0;
-      const discount = member.discount || 0;
-      const totalFees = Math.max(0, registrationFee + packageFee - discount);
-
-      // Get total paid from receipts
-      const paidResult = this.db.prepare(`
-        SELECT SUM(COALESCE(amount_paid, amount, 0)) as total_paid
+      // Calculate total due amount from all receipts for this member
+      const dueResult = this.db.prepare(`
+        SELECT SUM(COALESCE(due_amount, 0)) as total_due
         FROM receipts 
         WHERE member_id = ? AND (receipt_category IS NULL OR receipt_category = 'member')
       `).get(memberId);
-
-      const totalPaid = paidResult.total_paid || 0;
-      const dueAmount = Math.max(0, totalFees - totalPaid);
+      
+      const totalDue = dueResult.total_due || 0;
+      const dueAmount = Math.max(0, totalDue);
 
       // Debug log for troubleshooting
       if (dueAmount > 0) {
-        console.log(`💰 Due amount calculation for member ${member.name} (${memberId}):`, {
-          totalFees,
-          totalPaid,
-          dueAmount,
-          registrationFee,
-          packageFee,
-          discount,
-          memberPaidAmount: member.paid_amount // This should NOT be used for calculation
-        });
+        console.log(`💰 Due amount for member ${member.name} (${memberId}): ₹${dueAmount}`);
       }
 
       return {
@@ -5009,7 +5224,9 @@ class DatabaseService {
   // Package Management
   getAllPackages() {
     try {
-      return this.db.prepare('SELECT * FROM master_packages WHERE is_active = 1 ORDER BY duration_months ASC').all();
+      const packages = this.db.prepare('SELECT * FROM master_packages WHERE is_active = 1 ORDER BY duration_months ASC').all();
+      console.log('📦 Retrieved packages:', packages.map(p => ({ id: p.id, name: p.name, idType: typeof p.id })));
+      return packages;
     } catch (error) {
       console.error('Get all packages error:', error);
       return [];
@@ -5070,6 +5287,18 @@ class DatabaseService {
 
   updatePackage(id, packageData) {
     try {
+      console.log('📦 Updating package:', { id, packageData });
+      
+      // First, check if the package exists
+      const existingPackage = this.db.prepare('SELECT * FROM master_packages WHERE id = ?').get(id);
+      console.log('📦 Existing package:', existingPackage);
+      
+      if (!existingPackage) {
+        console.error('📦 Package not found with id:', id);
+        console.log('📦 Available packages:', this.db.prepare('SELECT id, name FROM master_packages').all());
+        return false;
+      }
+      
       const stmt = this.db.prepare(`
         UPDATE master_packages SET 
           name = ?, duration_type = ?, duration_months = ?, price = ?, 
@@ -5077,14 +5306,6 @@ class DatabaseService {
         WHERE id = ?
       `);
 
-      // const result = stmt.run(
-      //   packageData.name,
-      //   packageData.duration_type,
-      //   packageData.duration_months,
-      //   packageData.price,
-      //   packageData.is_active !== undefined ? packageData.is_active : 1,
-      //   id
-      // );
       // Validate duration_type
       const validDurationTypes = ['monthly', 'quarterly', 'half_yearly', 'yearly', 'custom'];
       const durationType = packageData.duration_type || 'monthly';
@@ -5093,30 +5314,52 @@ class DatabaseService {
         throw new Error(`Invalid duration_type: ${durationType}. Must be one of: ${validDurationTypes.join(', ')}`);
       }
 
+      // Ensure all values are properly typed for SQLite
+      const name = String(packageData.name || "");
+      const durationMonths = Number(packageData.duration_months ?? 1);
+      const price = Number(packageData.price ?? 0);
+      const isActive = packageData.is_active !== undefined ? (packageData.is_active ? 1 : 0) : 1;
+
+      console.log('📦 Prepared values:', { name, durationType, durationMonths, price, isActive, id });
+
       const result = stmt.run(
-        packageData.name || "",
-        durationType, // validated duration type
-        packageData.duration_months ?? 1, // default to 1 month
-        packageData.price ?? 0,
-        packageData.is_active !== undefined ? packageData.is_active : 1,
+        name,
+        durationType,
+        durationMonths,
+        price,
+        isActive,
         id
       );
 
+      console.log('📦 Update result:', { changes: result.changes });
 
       return result.changes > 0;
     } catch (error) {
-      console.error('Update package error:', error);
+      console.error('📦 Update package error:', error);
       return false;
     }
   }
 
   deletePackage(id) {
     try {
+      console.log('📦 Deleting package with id:', id);
+      
+      // First, check if the package exists
+      const existingPackage = this.db.prepare('SELECT * FROM master_packages WHERE id = ?').get(id);
+      console.log('📦 Existing package:', existingPackage);
+      
+      if (!existingPackage) {
+        console.error('📦 Package not found with id:', id);
+        console.log('📦 Available packages:', this.db.prepare('SELECT id, name FROM master_packages').all());
+        return false;
+      }
+      
       const stmt = this.db.prepare('UPDATE master_packages SET is_active = 0 WHERE id = ?');
       const result = stmt.run(id);
+      console.log('📦 Delete result:', { changes: result.changes });
       return result.changes > 0;
     } catch (error) {
-      console.error('Delete package error:', error);
+      console.error('📦 Delete package error:', error);
       return false;
     }
   }
@@ -5788,8 +6031,8 @@ class DatabaseService {
           id, custom_member_id, name, email, address, telephone_no, mobile_no, 
           occupation, marital_status, anniversary_date, blood_group, sex, 
           date_of_birth, alternate_no, member_image, id_proof_image, 
-          date_of_registration, services, medical_issues, goals, status, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          date_of_registration, services, medical_issues, goals, status, subscription_status, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       // Ensure dates are properly formatted as strings
@@ -5835,6 +6078,7 @@ class DatabaseService {
         memberData.medicalIssues || null,
         memberData.goals || null,
         'partial',
+        'pending',
         now
       );
 
@@ -6191,7 +6435,7 @@ class DatabaseService {
   // Staff attendance operations
   getAllStaffAttendance() {
     try {
-      return this.db.prepare('SELECT * FROM staff_attendance ORDER BY created_at DESC').all();
+      return this.db.prepare('SELECT * FROM staff_attendance ORDER BY date DESC, check_in DESC').all();
     } catch (error) {
       console.error('Get staff attendance error:', error);
       return [];
@@ -6749,6 +6993,37 @@ class DatabaseService {
 
       if (result.changes > 0) {
         console.log(`✅ Receipt created successfully: ${receiptData.receipt_number}`);
+        
+        // Update member's paid_amount if this is a member receipt
+        if (receiptData.member_id && (receiptData.receipt_category === 'member' || !receiptData.receipt_category)) {
+          try {
+            // Calculate total paid from all receipts for this member
+            const paidResult = this.db.prepare(`
+              SELECT SUM(COALESCE(amount_paid, amount, 0)) as total_paid
+              FROM receipts 
+              WHERE member_id = ? AND (receipt_category IS NULL OR receipt_category = 'member')
+            `).get(receiptData.member_id);
+            
+            const totalPaid = paidResult.total_paid || 0;
+            
+            // Update member's paid_amount
+            const updateMemberStmt = this.db.prepare(`
+              UPDATE members 
+              SET paid_amount = ?, updated_at = CURRENT_TIMESTAMP
+              WHERE id = ?
+            `);
+            
+            const updateResult = updateMemberStmt.run(totalPaid, receiptData.member_id);
+            
+            if (updateResult.changes > 0) {
+              console.log(`✅ Updated member ${receiptData.member_id} paid_amount to ${totalPaid}`);
+            }
+          } catch (updateError) {
+            console.error('Error updating member paid_amount:', updateError);
+            // Don't fail the receipt creation if member update fails
+          }
+        }
+        
         return true;
       } else {
         throw new Error('Failed to create receipt');
@@ -6928,28 +7203,16 @@ class DatabaseService {
       const members = this.db.prepare('SELECT * FROM members ORDER BY created_at DESC').all();
 
       return members.map(member => {
-        // Calculate total fees
-        const registrationFee = member.registration_fee || 0;
-        const packageFee = member.package_fee || member.membership_fees || 0;
-        const discount = member.discount || 0;
-        const totalFees = Math.max(0, registrationFee + packageFee - discount);
-
-        // Use member's paid_amount as primary source, but validate against receipts
-        const memberPaidAmount = member.paid_amount || 0;
-        // Get total paid from receipts for validation
-        const paidResult = this.db.prepare(`
-          SELECT SUM(COALESCE(amount_paid, amount, 0)) as total_paid
+        // Calculate total due amount from all receipts for this member
+        // Sum of all due_amount fields from receipts
+        const dueResult = this.db.prepare(`
+          SELECT SUM(COALESCE(due_amount, 0)) as total_due
           FROM receipts 
           WHERE member_id = ? AND (receipt_category IS NULL OR receipt_category = 'member')
         `).get(member.id);
-        const receiptsPaidAmount = paidResult.total_paid || 0;
-        // Use member's paid_amount if it exists and is reasonable, otherwise use receipts total
-        const totalPaid = memberPaidAmount > 0 ? memberPaidAmount : receiptsPaidAmount;
-        const dueAmount = Math.max(0, totalFees - totalPaid);
-        // Debug logging for inconsistencies
-        if (Math.abs(memberPaidAmount - receiptsPaidAmount) > 0.01 && memberPaidAmount > 0 && receiptsPaidAmount > 0) {
-          console.log(`⚠️ Payment inconsistency for ${member.name}: member.paid_amount=${memberPaidAmount}, receipts_total=${receiptsPaidAmount}`);
-        }
+        
+        const totalDue = dueResult.total_due || 0;
+        const dueAmount = Math.max(0, totalDue);
 
         return {
           ...member,
@@ -6966,15 +7229,20 @@ class DatabaseService {
   // Get member due amount
   getMemberDueAmount(memberId) {
     try {
-      const stmt = this.db.prepare(`
-        SELECT 
-          COALESCE(SUM(i.total_amount - i.paid_amount), 0) as dueAmount,
-          COUNT(CASE WHEN i.status != 'paid' THEN 1 END) as unpaidInvoices
-        FROM invoices i
-        WHERE i.member_id = ? AND i.status != 'paid'
-      `);
-      const result = stmt.get(memberId);
-      return result || { dueAmount: 0, unpaidInvoices: 0 };
+      // Calculate total due amount from all receipts for this member
+      const dueResult = this.db.prepare(`
+        SELECT SUM(COALESCE(due_amount, 0)) as total_due
+        FROM receipts 
+        WHERE member_id = ? AND (receipt_category IS NULL OR receipt_category = 'member')
+      `).get(memberId);
+      
+      const totalDue = dueResult.total_due || 0;
+      const dueAmount = Math.max(0, totalDue);
+      
+      return { 
+        dueAmount: dueAmount, 
+        unpaidInvoices: dueAmount > 0 ? 1 : 0 
+      };
     } catch (error) {
       console.error('Get member due amount error:', error);
       return { dueAmount: 0, unpaidInvoices: 0 };
@@ -6992,42 +7260,20 @@ class DatabaseService {
         return { success: false, error: 'Member not found' };
       }
 
-      // 2. Calculate current due amount using the same logic as getAllMembersWithDueAmounts
-      const registrationFee = member.registration_fee || 0;
-      const packageFee = member.package_fee || member.membership_fees || 0;
-      const discount = member.discount || 0;
-      const totalMembershipFee = Math.max(0, registrationFee + packageFee - discount);
-      
-      // Get total paid from receipts (same as due calculation)
-      const paidResult = this.db.prepare(`
-        SELECT SUM(COALESCE(amount_paid, amount, 0)) as total_paid
+      // 2. Calculate current due amount from receipts' due_amount field
+      const dueResult = this.db.prepare(`
+        SELECT SUM(COALESCE(due_amount, 0)) as total_due
         FROM receipts 
         WHERE member_id = ? AND (receipt_category IS NULL OR receipt_category = 'member')
       `).get(memberId);
-
-      const totalPaidFromReceipts = paidResult.total_paid || 0;
-      const currentDueAmount = Math.max(0, totalMembershipFee - totalPaidFromReceipts);
+      
+      const currentDueAmount = Math.max(0, dueResult.total_due || 0);
 
       console.log('💰 Due payment calculation:', {
         memberName: member.name,
-        totalFee: totalMembershipFee,
-        totalPaidFromReceipts,
-        memberPaidAmount: member.paid_amount || 0,
         currentDue: currentDueAmount,
         paymentAmount
       });
-
-      // Debug: Check if we have receipts for this member
-      const allReceipts = this.db.prepare(`
-        SELECT * FROM receipts WHERE member_id = ?
-      `).all(memberId);
-      console.log('💰 All receipts for member:', allReceipts.length, allReceipts.map(r => ({
-        id: r.id,
-        amount_paid: r.amount_paid,
-        amount: r.amount,
-        category: r.receipt_category,
-        type: r.transaction_type
-      })));
 
       // 3. Validate payment amount
       if (currentDueAmount <= 0) {
@@ -7042,37 +7288,75 @@ class DatabaseService {
         return { success: false, error: `Payment amount (₹${paymentAmount}) cannot exceed due amount (₹${currentDueAmount})` };
       }
 
-      // 4. Calculate new amounts after payment
-      const newTotalPaid = totalPaidFromReceipts + paymentAmount;
-      const newDueAmount = Math.max(0, totalMembershipFee - newTotalPaid);
-      
-      // Determine new membership status
-      let newStatus = member.status;
-      if (newDueAmount === 0 && member.subscriptionStatus !== 'expired') {
-        newStatus = 'active';
+      // 4. Get receipts with due amounts (oldest first)
+      const receiptsWithDue = this.db.prepare(`
+        SELECT * FROM receipts 
+        WHERE member_id = ? 
+        AND (receipt_category IS NULL OR receipt_category = 'member')
+        AND due_amount > 0
+        ORDER BY created_at ASC
+      `).all(memberId);
+
+      console.log('💰 Found receipts with due:', receiptsWithDue.length);
+
+      // 5. Distribute payment across receipts with dues
+      let remainingPayment = paymentAmount;
+      const updatedReceipts = [];
+
+      for (const receipt of receiptsWithDue) {
+        if (remainingPayment <= 0) break;
+
+        const receiptDue = receipt.due_amount || 0;
+        const paymentForThisReceipt = Math.min(remainingPayment, receiptDue);
+        const newDueForReceipt = receiptDue - paymentForThisReceipt;
+
+        // Update the receipt's due_amount
+        const updateReceiptStmt = this.db.prepare(`
+          UPDATE receipts 
+          SET due_amount = ?
+          WHERE id = ?
+        `);
+        
+        updateReceiptStmt.run(newDueForReceipt, receipt.id);
+        
+        updatedReceipts.push({
+          receipt_id: receipt.id,
+          receipt_number: receipt.receipt_number,
+          old_due: receiptDue,
+          payment_applied: paymentForThisReceipt,
+          new_due: newDueForReceipt
+        });
+
+        remainingPayment -= paymentForThisReceipt;
       }
 
-      // 5. Update member's paid_amount to match the new total
+      console.log('💰 Updated receipts:', updatedReceipts);
+
+      // 6. Calculate new total due
+      const newDueResult = this.db.prepare(`
+        SELECT SUM(COALESCE(due_amount, 0)) as total_due
+        FROM receipts 
+        WHERE member_id = ? AND (receipt_category IS NULL OR receipt_category = 'member')
+      `).get(memberId);
+      
+      const newTotalDue = Math.max(0, newDueResult.total_due || 0);
+
+      // 7. Update member's paid_amount
+      const currentPaidAmount = member.paid_amount || 0;
+      const newPaidAmount = currentPaidAmount + paymentAmount;
+      
       const updateMemberStmt = this.db.prepare(`
         UPDATE members 
-        SET paid_amount = ?, status = ?, updated_at = CURRENT_TIMESTAMP 
+        SET paid_amount = ?, updated_at = CURRENT_TIMESTAMP 
         WHERE id = ?
       `);
       
-      const memberUpdateResult = updateMemberStmt.run(newTotalPaid, newStatus, memberId);
-      
-      if (memberUpdateResult.changes === 0) {
-        throw new Error('Failed to update member record');
-      }
+      updateMemberStmt.run(newPaidAmount, memberId);
 
-      // 6. Generate receipt for ONLY the current payment (not total)
+      // 8. Create a payment receipt for record
       const receiptId = this.generateId();
       const receiptNumber = this.generateReceiptNumber();
       const currentDateTime = new Date().toISOString();
-      
-      // Determine receipt remarks
-      const isFullPayment = newDueAmount === 0;
-      const remarks = isFullPayment ? 'Full due cleared' : 'Partial due cleared';
       
       const receiptData = {
         id: receiptId,
@@ -7080,11 +7364,11 @@ class DatabaseService {
         member_id: memberId,
         member_name: member.name,
         custom_member_id: member.custom_member_id,
-        amount: totalMembershipFee, // Total membership fee
-        amount_paid: paymentAmount, // ONLY the current payment amount
-        due_amount: newDueAmount, // Remaining due after this payment
+        amount: paymentAmount,
+        amount_paid: paymentAmount,
+        due_amount: 0, // This is a payment receipt, no due
         payment_type: paymentType,
-        description: `Due Payment - ${remarks} (₹${paymentAmount} of ₹${currentDueAmount} due)`,
+        description: `Due Payment - ₹${paymentAmount} paid towards outstanding dues`,
         receipt_category: 'member',
         transaction_type: 'due_payment',
         subscription_start_date: member.subscription_start_date,
@@ -7093,16 +7377,15 @@ class DatabaseService {
         payment_mode: paymentType,
         mobile_no: member.mobile_no,
         email: member.email,
-        package_fee: packageFee,
-        registration_fee: registrationFee,
-        discount: discount,
+        package_fee: 0,
+        registration_fee: 0,
+        discount: 0,
         cgst: 0,
         sigst: 0,
         created_at: currentDateTime,
         created_by: createdBy
       };
 
-      // Insert receipt
       const insertReceiptStmt = this.db.prepare(`
         INSERT INTO receipts (
           id, receipt_number, member_id, member_name, custom_member_id, amount, amount_paid, due_amount,
@@ -7112,7 +7395,7 @@ class DatabaseService {
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
-      const receiptResult = insertReceiptStmt.run(
+      insertReceiptStmt.run(
         receiptData.id,
         receiptData.receipt_number,
         receiptData.member_id,
@@ -7140,34 +7423,27 @@ class DatabaseService {
         receiptData.created_by
       );
 
-      if (receiptResult.changes === 0) {
-        throw new Error('Failed to create receipt');
-      }
-
-      // 7. Prepare response
+      // 9. Prepare response
       const response = {
         success: true,
         member_id: memberId,
+        receipt_id: receiptId,
+        receipt_number: receiptNumber,
+        updated_receipts: updatedReceipts,
         updated_member_data: {
-          amount_paid: newTotalPaid,
-          due_amount: newDueAmount,
-          membership_status: newStatus,
-          total_membership_fee: totalMembershipFee
+          amount_paid: newPaidAmount,
+          due_amount: newTotalDue
         },
         new_receipt: {
           receipt_id: receiptId,
           receipt_number: receiptNumber,
           receipt_type: 'Due Payment',
-          amount_paid_now: paymentAmount, // Only current payment
-          previous_paid: totalPaidFromReceipts, // Previous total from receipts
-          new_total_paid: newTotalPaid, // New total after this payment
-          total_amount: totalMembershipFee,
-          remaining_due: newDueAmount,
+          amount_paid_now: paymentAmount,
+          remaining_due: newTotalDue,
           payment_date: currentDateTime,
-          payment_type: paymentType,
-          remarks: remarks
+          payment_type: paymentType
         },
-        confirmation_message: `₹${paymentAmount} received from ${member.name}. Remaining due: ₹${newDueAmount}.`
+        confirmation_message: `₹${paymentAmount} received from ${member.name}. Remaining due: ₹${newTotalDue}.`
       };
 
       console.log('✅ Due payment processed successfully:', response);
@@ -7304,6 +7580,7 @@ class DatabaseService {
           payment_mode = ?, plan_type = ?, services = ?, membership_fees = ?, 
           registration_fee = ?, package_fee = ?, discount = ?, paid_amount = ?,
           subscription_start_date = ?, subscription_end_date = ?, status = ?,
+          subscription_status = ?,
           updated_at = CURRENT_TIMESTAMP
         WHERE id = ? OR custom_member_id = ?
       `);
@@ -7320,6 +7597,7 @@ class DatabaseService {
         membershipData.subscriptionStartDate,
         membershipData.subscriptionEndDate,
         membershipData.status || 'active',
+        'active',
         memberId,
         memberId
       );

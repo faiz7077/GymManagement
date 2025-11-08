@@ -12,7 +12,6 @@ import {
   Settings as SettingsIcon
 } from 'lucide-react';
 import { PackageSettings } from './PackageSettings';
-import { TaxSettings } from './TaxSettings';
 import { ExpenseCategorySettings } from './ExpenseCategorySettings';
 import { OccupationSettings } from './OccupationSettings';
 import { PaymentTypeSettings } from './PaymentTypeSettings';
@@ -28,13 +27,6 @@ export const MasterSettings: React.FC = () => {
       icon: Package,
       description: 'Manage membership packages and pricing plans',
       component: PackageSettings
-    },
-    {
-      id: 'tax-settings',
-      label: 'Tax Settings',
-      icon: Receipt,
-      description: 'Configure tax rates and types (CGST, SGST, etc.)',
-      component: TaxSettings
     },
     {
       id: 'expense-categories',
@@ -79,7 +71,7 @@ export const MasterSettings: React.FC = () => {
       </CardHeader>
       <CardContent>
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="grid w-full grid-cols-6 h-auto p-1">
+          <TabsList className="grid w-full grid-cols-5 h-auto p-1">
             {masterDataTabs.map((tab) => {
               const IconComponent = tab.icon;
               return (

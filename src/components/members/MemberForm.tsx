@@ -17,7 +17,7 @@ import { LegacyMember, LegacyEnquiry, db } from '@/utils/database';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { compressImage, validateImageFile } from '@/utils/imageUtils';
 import { useToast } from '@/hooks/use-toast';
-import { useTaxSelection } from '@/hooks/useTaxSelection';
+
 import { calculateSubscriptionEndDate, getPlanDurationInMonths, formatDateForDatabase } from '@/utils/dateUtils';
 import { partialMemberSchema, validatePartialMember, PartialMemberData } from '@/schemas/partialMemberSchema';
 
@@ -49,7 +49,7 @@ const memberSchema = z.object({
     required_error: 'Date of registration is required',
   }),
   paymentMode: z.enum(['cash', 'upi', 'bank_transfer']),
-  planType: z.enum(['monthly', 'quarterly', 'half_yearly', 'yearly']),
+  planType: z.enum(['monthly', 'quarterly', 'half_yearly', 'yearly', 'custom']),
   services: z.array(z.string()).min(1, 'At least one service must be selected'),
   membershipFees: z.number().min(0, 'Total fees must be positive'),
   registrationFee: z.number().min(0, 'Registration fee must be positive'),
@@ -109,7 +109,6 @@ export const MemberForm: React.FC<MemberFormProps> = ({ initialData, enquiryData
     receiptCount: number;
   }>({ totalPaid: 0, totalDue: 0, receiptCount: 0 });
   const [occupations, setOccupations] = useState<unknown[]>([]);
-  const [taxSettings, setTaxSettings] = useState<unknown[]>([]);
   const [packages, setPackages] = useState<unknown[]>([]);
   const [paymentTypes, setPaymentTypes] = useState<unknown[]>([]);
   const [masterDataLoaded, setMasterDataLoaded] = useState(false);
@@ -233,26 +232,13 @@ export const MemberForm: React.FC<MemberFormProps> = ({ initialData, enquiryData
   const discount = watch('discount');
   const paidAmount = watch('paidAmount');
 
-  // Enhanced tax selection hook
+  // Calculate total amount without tax
   const baseAmount = (registrationFee || 0) + (packageFee || 0) - (discount || 0);
-  const {
-    selectedTaxes,
-    taxType,
-    filteredTaxes,
-    calculationResult,
-    toggleTax,
-    clearAllTaxes,
-    setTaxSelection,
-    isTaxSelectable,
-    getTaxTypeLabel
-  } = useTaxSelection({
-    taxes: taxSettings,
-    baseAmount,
-    onTaxChange: (result) => {
-      // Update form amount when tax calculation changes
-      setValue('membershipFees', result.totalAmount);
-    }
-  });
+  
+  // Update membership fees when base amount changes
+  useEffect(() => {
+    setValue('membershipFees', baseAmount);
+  }, [baseAmount, setValue]);
 
   // Load real-time amounts from receipts
   const loadRealTimeAmounts = useCallback(async () => {
@@ -341,24 +327,7 @@ export const MemberForm: React.FC<MemberFormProps> = ({ initialData, enquiryData
   };
 
   // Load tax settings from master settings
-  const loadTaxSettings = async () => {
-    try {
-      console.log('Loading tax settings...');
-      const result = await db.masterTaxSettingsGetAll();
-      console.log('Tax settings result:', result);
-      if (result.success && result.data) {
-        const activeTaxes = result.data.filter(tax => tax.is_active !== false);
-        console.log('Active tax settings:', activeTaxes);
-        setTaxSettings(activeTaxes);
-      } else {
-        console.error('Failed to load tax settings:', result.error);
-        setTaxSettings([]); // Set empty array on failure
-      }
-    } catch (error) {
-      console.error('Error loading tax settings:', error);
-      setTaxSettings([]); // Set empty array on error
-    }
-  };
+
 
   // Load payment types from master settings
   const loadPaymentTypes = async () => {
@@ -388,8 +357,7 @@ export const MemberForm: React.FC<MemberFormProps> = ({ initialData, enquiryData
         loadRealTimeAmounts(),
         loadOccupations(),
         loadPackages(),
-        loadPaymentTypes(),
-        loadTaxSettings()
+        loadPaymentTypes()
       ]);
       setMasterDataLoaded(true);
       console.log('All master data loaded');
@@ -416,10 +384,10 @@ export const MemberForm: React.FC<MemberFormProps> = ({ initialData, enquiryData
       console.log('Plan type changed:', planType, 'Available packages:', packages);
 
       // Find the selected package in master packages
+      // Match by ID first (most reliable), then by name, but NOT by duration_type to avoid conflicts with custom packages
       const selectedPackage = packages.find(pkg =>
-        pkg.name?.toLowerCase() === planType.toLowerCase() ||
-        pkg.duration_type?.toLowerCase() === planType.toLowerCase() ||
-        pkg.id?.toString() === planType
+        pkg.id?.toString() === planType ||
+        pkg.name?.toLowerCase() === planType.toLowerCase()
       );
 
       console.log('Found selected package:', selectedPackage);
@@ -802,18 +770,7 @@ export const MemberForm: React.FC<MemberFormProps> = ({ initialData, enquiryData
     const paidAmount = data.paidAmount || 0;
     const dueAmount = Math.max(0, totalAmount - paidAmount);
 
-    // Get enhanced tax information
-    let selectedTaxInfo = null;
-    if (calculationResult.taxBreakdown.length > 0) {
-      const primaryTax = calculationResult.taxBreakdown[0];
-      selectedTaxInfo = {
-        id: primaryTax.id,
-        name: primaryTax.name,
-        rate: primaryTax.rate,
-        type: primaryTax.type,
-        amount: primaryTax.amount
-      };
-    }
+
 
     console.log('Member form amounts:', {
       totalAmount,
@@ -822,8 +779,7 @@ export const MemberForm: React.FC<MemberFormProps> = ({ initialData, enquiryData
       membershipFees: data.membershipFees,
       registrationFee: data.registrationFee,
       packageFee: data.packageFee,
-      discount: data.discount,
-      selectedTax: selectedTaxInfo
+      discount: data.discount
     });
 
     onSubmit({
@@ -869,14 +825,6 @@ export const MemberForm: React.FC<MemberFormProps> = ({ initialData, enquiryData
       profileImage: undefined,
       weight: undefined,
 
-      // Add tax information
-      tax: selectedTaxInfo ? {
-        id: selectedTaxInfo.id,
-        name: selectedTaxInfo.name,
-        rate: selectedTaxInfo.rate,
-        type: selectedTaxInfo.type,
-        amount: selectedTaxInfo.amount
-      } : undefined
     });
   };
 
@@ -1356,8 +1304,7 @@ export const MemberForm: React.FC<MemberFormProps> = ({ initialData, enquiryData
               await Promise.all([
                 loadOccupations(),
                 loadPackages(),
-                loadPaymentTypes(),
-                loadTaxSettings()
+                loadPaymentTypes()
               ]);
               setMasterDataLoaded(true);
               toast({
@@ -1536,17 +1483,17 @@ export const MemberForm: React.FC<MemberFormProps> = ({ initialData, enquiryData
                   <SelectItem value="loading" disabled>Loading plans...</SelectItem>
                 ) : packages.length > 0 ? (
                   packages
-                    .filter(pkg => pkg && (pkg.id || pkg.name || pkg.duration_type)) // Better filtering
+                    .filter(pkg => pkg && (pkg.id || pkg.name)) // Filter packages that have ID or name
                     .map((pkg, index) => {
-                      // Generate a guaranteed unique key using index as fallback
-                      const uniqueKey = pkg.id || pkg.name || pkg.duration_type || `package-${index}`;
-                      // Ensure value is never null - use duration_type as primary value
-                      const uniqueValue = pkg.duration_type || pkg.name || pkg.id?.toString() || `plan-${index}`;
+                      // Use ID as the primary unique identifier, fallback to name
+                      const uniqueKey = pkg.id?.toString() || pkg.name || `package-${index}`;
+                      // Use ID or name as value (NOT duration_type to avoid conflicts with custom packages)
+                      const uniqueValue = pkg.id?.toString() || pkg.name || `plan-${index}`;
 
                       return (
                         <SelectItem key={uniqueKey} value={uniqueValue}>
                           <div className="flex flex-col">
-                            <span className="font-medium">{pkg.name || pkg.duration_type || `Plan ${index + 1}`}</span>
+                            <span className="font-medium">{pkg.name || `Plan ${index + 1}`}</span>
                             <div className="text-xs text-muted-foreground flex gap-2">
                               {pkg.duration_months && (
                                 <span>{pkg.duration_months} month{pkg.duration_months > 1 ? 's' : ''}</span>
@@ -1661,139 +1608,7 @@ export const MemberForm: React.FC<MemberFormProps> = ({ initialData, enquiryData
             </div>
           </div>
 
-          {/* Enhanced Tax Settings Section */}
-          {taxSettings.length > 0 && (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <Label className="text-base font-semibold text-gray-900">Tax Settings</Label>
-                <div className="flex items-center gap-2">
-                  <Badge variant="outline" className="text-xs">{getTaxTypeLabel()}</Badge>
-                  {Object.values(selectedTaxes).some(selected => selected) && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={clearAllTaxes}
-                      className="text-xs text-red-600 hover:text-red-800"
-                    >
-                      Clear All
-                    </Button>
-                  )}
-                </div>
-              </div>
 
-              {/* Tax Selection Dropdowns */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Inclusive Tax Dropdown */}
-                {taxSettings.filter(tax => tax.is_inclusive).length > 0 && (
-                  <div className="space-y-2">
-                    <Label className="text-sm font-semibold text-blue-700 flex items-center gap-2">
-                      <Badge variant="secondary" className="bg-blue-100 text-blue-800 border-blue-300 text-xs">
-                        Tax Inclusive
-                      </Badge>
-                      Select Inclusive Tax
-                    </Label>
-                    <Select
-                      value={Object.keys(selectedTaxes).find(id => selectedTaxes[id] && taxSettings.find(t => t.id === id)?.is_inclusive) || undefined}
-                      onValueChange={(value) => {
-                        if (value && value !== "none") {
-                          // Clear all taxes and select only this inclusive tax
-                          const newSelection: { [key: string]: boolean } = {};
-                          taxSettings.forEach(tax => {
-                            newSelection[tax.id] = tax.id === value;
-                          });
-                          setTaxSelection(newSelection);
-                        } else {
-                          clearAllTaxes();
-                        }
-                      }}
-                    >
-                      <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Choose inclusive tax (optional)" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem key="inclusive-none" value="none">No Tax</SelectItem>
-                        {taxSettings
-                          .filter(tax => tax.is_inclusive)
-                          .map(tax => (
-                            <SelectItem key={`inclusive-${tax.id}`} value={tax.id}>
-                              {tax.name} ({tax.rate}%) - {tax.tax_type?.toUpperCase() || 'TAX'}
-                            </SelectItem>
-                          ))}
-                      </SelectContent>
-                    </Select>
-                    <p className="text-xs text-blue-600">
-                      Tax amount is already included in the price. Total won't change.
-                    </p>
-                  </div>
-                )}
-
-                {/* Exclusive Tax Dropdown */}
-                {taxSettings.filter(tax => !tax.is_inclusive).length > 0 && (
-                  <div className="space-y-2">
-                    <Label className="text-sm font-semibold text-green-700 flex items-center gap-2">
-                      <Badge variant="secondary" className="bg-green-100 text-green-800 border-green-300 text-xs">
-                        Tax Exclusive
-                      </Badge>
-                      Select Exclusive Tax
-                    </Label>
-                    <Select
-                      value={Object.keys(selectedTaxes).find(id => selectedTaxes[id] && taxSettings.find(t => t.id === id && !t.is_inclusive)) || undefined}
-                      onValueChange={(value) => {
-                        if (value && value !== "none") {
-                          // Clear all taxes and select only this exclusive tax
-                          const newSelection: { [key: string]: boolean } = {};
-                          taxSettings.forEach(tax => {
-                            newSelection[tax.id] = tax.id === value;
-                          });
-                          setTaxSelection(newSelection);
-                        } else {
-                          clearAllTaxes();
-                        }
-                      }}
-                    >
-                      <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Choose exclusive tax (optional)" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem key="exclusive-none" value="none">No Tax</SelectItem>
-                        {taxSettings
-                          .filter(tax => !tax.is_inclusive)
-                          .map(tax => (
-                            <SelectItem key={`exclusive-${tax.id}`} value={tax.id}>
-                              {tax.name} ({tax.rate}%) - {tax.tax_type?.toUpperCase() || 'TAX'}
-                            </SelectItem>
-                          ))}
-                      </SelectContent>
-                    </Select>
-                    <p className="text-xs text-green-600">
-                      Tax amount will be added to the total price.
-                    </p>
-                  </div>
-                )}
-              </div>
-
-              {/* Tax Summary */}
-              {calculationResult.taxAmount > 0 && (
-                <div className="mt-4 p-3 bg-gray-50 rounded border">
-                  <div className="text-sm space-y-1">
-                    <div className="flex justify-between">
-                      <span>Base Amount:</span>
-                      <span>₹{calculationResult.baseAmount.toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Total Tax ({getTaxTypeLabel()}):</span>
-                      <span>₹{calculationResult.taxAmount.toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between font-semibold border-t pt-1">
-                      <span>Final Amount:</span>
-                      <span>₹{calculationResult.totalAmount.toFixed(2)}</span>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
 
           {/* Master Settings Integration Info */}
           <div className="bg-blue-50 border border-blue-200 p-3 rounded">
@@ -1814,10 +1629,6 @@ export const MemberForm: React.FC<MemberFormProps> = ({ initialData, enquiryData
                     <strong>Payment Types:</strong> {paymentTypes.length} loaded
                     {paymentTypes.length === 0 && <div className="text-xs">Configure in Master Settings → Payment Types</div>}
                   </div>
-                  <div className={`p-2 rounded ${taxSettings.length > 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                    <strong>Tax Settings:</strong> {taxSettings.length} loaded
-                    {taxSettings.length === 0 && <div className="text-xs">Configure in Master Settings → Tax Settings</div>}
-                  </div>
                 </div>
 
                 {/* Debug Information */}
@@ -1827,9 +1638,7 @@ export const MemberForm: React.FC<MemberFormProps> = ({ initialData, enquiryData
                     <div><strong>Occupations Sample:</strong> {occupations.slice(0, 2).map(o => o?.name || 'Unknown').join(', ') || 'None'}</div>
                     <div><strong>Packages Sample:</strong> {packages.slice(0, 2).map(p => p?.name || p?.duration_type || 'Unknown').join(', ') || 'None'}</div>
                     <div><strong>Payment Types Sample:</strong> {paymentTypes.slice(0, 2).map(pt => pt?.name || 'Unknown').join(', ') || 'None'}</div>
-                    <div><strong>Tax Settings Sample:</strong> {taxSettings.slice(0, 2).map(t => t?.name || 'Unknown').join(', ') || 'None'}</div>
                     <div><strong>Selected Plan:</strong> {planType || 'None'}</div>
-                    <div><strong>Selected Taxes:</strong> {Object.keys(selectedTaxes).filter(id => selectedTaxes[id]).join(', ') || 'None'}</div>
                   </div>
                 </details>
               </div>
@@ -1860,37 +1669,6 @@ export const MemberForm: React.FC<MemberFormProps> = ({ initialData, enquiryData
                 <span>Base Amount:</span>
                 <span>₹{Math.max(0, (registrationFee || 0) + (packageFee || 0) - (discount || 0))}</span>
               </div>
-
-              {/* Show tax if selected */}
-              {(() => {
-                const selectedTaxId = Object.keys(selectedTaxes).find(id => selectedTaxes[id]);
-                if (selectedTaxId) {
-                  const selectedTax = taxSettings.find(tax => tax.id === selectedTaxId);
-                  if (selectedTax) {
-                    const baseAmount = Math.max(0, (registrationFee || 0) + (packageFee || 0) - (discount || 0));
-                    let taxAmount = 0;
-
-                    if (selectedTax.is_inclusive) {
-                      taxAmount = baseAmount - (baseAmount / (1 + (selectedTax.rate / 100)));
-                      return (
-                        <div className="flex justify-between text-amber-600">
-                          <span>{selectedTax.name} ({selectedTax.rate}%) (Inclusive):</span>
-                          <span>₹{taxAmount.toFixed(2)} (included in base amount)</span>
-                        </div>
-                      );
-                    } else {
-                      taxAmount = baseAmount * (selectedTax.rate / 100);
-                      return (
-                        <div className="flex justify-between text-green-600">
-                          <span>{selectedTax.name} ({selectedTax.rate}%) (Exclusive):</span>
-                          <span>+₹{taxAmount.toFixed(2)}</span>
-                        </div>
-                      );
-                    }
-                  }
-                }
-                return null;
-              })()}
 
               <div className="flex justify-between font-semibold border-t pt-1">
                 <span>Total Amount:</span>

@@ -82,7 +82,7 @@ class DatabaseService {
         paid_amount REAL DEFAULT 0,
         subscription_start_date TEXT,
         subscription_end_date TEXT,
-        subscription_status TEXT CHECK (subscription_status IN ('active', 'expiring_soon', 'expired')) DEFAULT 'active',
+        subscription_status TEXT CHECK (subscription_status IN ('active', 'expiring_soon', 'expired', 'pending')) DEFAULT 'active',
         medical_issues TEXT,
         goals TEXT,
         height REAL,

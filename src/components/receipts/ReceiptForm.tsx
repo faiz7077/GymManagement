@@ -479,7 +479,7 @@ export const ReceiptForm: React.FC<ReceiptFormProps> = ({ initialData, onSubmit,
           // Find the payment method in master payment types
           const paymentType = masterPaymentTypes.find(pt => 
             pt && typeof pt === 'object' && (
-              ((pt as any).name?.toLowerCase() === selectedPackage.payment_method.toLowerCase()) ||
+              ((pt as unknown).name?.toLowerCase() === selectedPackage.payment_method.toLowerCase()) ||
               ((pt as unknown).type?.toLowerCase() === selectedPackage.payment_method.toLowerCase()) ||
               ((pt as unknown).id?.toString() === selectedPackage.payment_method.toString())
             )
@@ -688,7 +688,7 @@ export const ReceiptForm: React.FC<ReceiptFormProps> = ({ initialData, onSubmit,
           // Update the selected member state to reflect changes
           setSelectedMember({
             ...selectedMember,
-            planType: data.selected_plan_type as 'monthly' | 'quarterly' | 'half_yearly' | 'yearly',
+            planType: data.selected_plan_type as 'monthly' | 'quarterly' | 'half_yearly' | 'yearly' | 'custom',
             subscriptionStartDate: data.subscription_start_date,
             subscriptionEndDate: data.subscription_end_date,
             registrationFee: data.registration_fee || 0,

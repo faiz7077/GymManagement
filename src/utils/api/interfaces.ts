@@ -37,7 +37,7 @@ export interface User {
     date_of_registration: string;
     receipt_no?: string;
     payment_mode: 'cash' | 'upi' | 'bank_transfer';
-    plan_type: 'monthly' | 'quarterly' | 'half_yearly' | 'yearly';
+    plan_type: 'monthly' | 'quarterly' | 'half_yearly' | 'yearly' | 'custom';
     services: string; // JSON string of selected services
     membership_fees: number;
     registration_fee: number;
@@ -58,7 +58,7 @@ export interface User {
     paid_amount: any;
     due_amount: any;
     dueAmount: any;
-    amount_paid: any;
+    amount_paid: unknown;
     notes: unknown;
     phone: unknown;
     profileImage: unknown;
@@ -83,7 +83,7 @@ export interface User {
     dateOfRegistration: string;
     receiptNo?: string;
     paymentMode: 'cash' | 'upi' | 'bank_transfer';
-    planType: 'monthly' | 'quarterly' | 'half_yearly' | 'yearly';
+    planType: 'monthly' | 'quarterly' | 'half_yearly' | 'yearly' | 'custom';
     services: string[]; // Array of selected services
     membershipFees: number;
     registrationFee: number;

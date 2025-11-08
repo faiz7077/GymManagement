@@ -227,7 +227,7 @@ export const Members: React.FC = () => {
     paginateMembers();
   }, [paginateMembers]);
 
-  const handlePartialSave = async (partialData: any) => {
+  const handlePartialSave = async (partialData: unknown) => {
     try {
       console.log('🔵 MEMBERS PAGE: Saving partial member:', partialData);
       console.log('🔵 MEMBERS PAGE: Required fields check:', {
@@ -536,8 +536,8 @@ export const Members: React.FC = () => {
   };
 
   return (
-    <div className="animate-fade-in w-full overflow-hidden h-full flex flex-col">
-      <div className="sticky top-0  bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b px-6 py-4 w-full overflow-hidden flex-shrink-0">
+    <div className="animate-fade-in">
+      <div className="sticky top-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b px-6 py-4">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
             {sidebarState === 'collapsed' && <SidebarTrigger />}
@@ -546,20 +546,9 @@ export const Members: React.FC = () => {
               <p className="text-muted-foreground">Comprehensive member management and reporting</p>
             </div>
           </div>
-        </div>
 
-        {/* Action Buttons */}
-        <div className="flex items-center gap-3 flex-wrap w-full overflow-hidden">
-          <Button
-            variant="outline"
-            className="gap-2"
-            onClick={() => setIsAddDialogOpen(true)}
-          >
-            <UserPlus className="h-4 w-4" />
-            Add Member
-          </Button>
-
-          <div className="flex gap-2">
+          {/* Action Buttons */}
+          <div className="flex items-center gap-2">
             <Button
               variant="outline"
               className="gap-2"
@@ -569,18 +558,18 @@ export const Members: React.FC = () => {
               <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
               Refresh
             </Button>
-            <Button 
-              variant="outline" 
-              onClick={handleUpdateSubscriptionStatuses}
-              disabled={loading}
+            <Button
+              className="gap-2 bg-blue-600 hover:bg-blue-700 text-white"
+              onClick={() => setIsAddDialogOpen(true)}
             >
-              Update Status
+              <UserPlus className="h-4 w-4" />
+              Add Member
             </Button>
           </div>
         </div>
 
         {/* Search and Filters */}
-        <div className="flex gap-4 items-center mt-4 w-full overflow-hidden">
+        <div className="flex gap-4 items-center mt-4">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
@@ -614,6 +603,7 @@ export const Members: React.FC = () => {
               <SelectItem value="active">Active</SelectItem>
               <SelectItem value="expiring_soon">Expiring Soon</SelectItem>
               <SelectItem value="expired">Expired</SelectItem>
+              <SelectItem value="pending">Pending</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -738,9 +728,12 @@ export const Members: React.FC = () => {
                       </TableCell>
                       <TableCell>
                         <Badge variant={member.subscriptionStatus === 'active' ? 'default' : 
-                                       member.subscriptionStatus === 'expiring_soon' ? 'secondary' : 
-                                       'destructive'}>
+                                       member.subscriptionStatus === 'expiring_soon' ? 'secondary' :
+                                       member.subscriptionStatus === 'pending' ? 'outline' : 
+                                       'destructive'}
+                               className={member.subscriptionStatus === 'pending' ? 'bg-amber-50 text-amber-700 border-amber-300' : ''}>
                           {member.subscriptionStatus === 'expiring_soon' ? 'Expiring Soon' : 
+                           member.subscriptionStatus === 'pending' ? 'Pending' :
                            member.subscriptionStatus || 'Unknown'}
                         </Badge>
                       </TableCell>
