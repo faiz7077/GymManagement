@@ -122,7 +122,21 @@ export const ReceiptDetails: React.FC<ReceiptDetailsProps> = ({ receipt, isOpen,
     }
   };
 
-  const handlePrintReceipt = () => {
+  const handlePrintReceipt = async () => {
+    // Load logo as base64
+    let logoBase64 = '';
+    try {
+      const response = await fetch('/Mono-1.png');
+      const blob = await response.blob();
+      logoBase64 = await new Promise<string>((resolve) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.readAsDataURL(blob);
+      });
+    } catch (error) {
+      console.error('Error loading logo:', error);
+    }
+
     // Create a new window for printing
     const printWindow = window.open('', '_blank');
     if (!printWindow) return;
@@ -143,6 +157,11 @@ export const ReceiptDetails: React.FC<ReceiptDetailsProps> = ({ receipt, isOpen,
               margin-bottom: 30px; 
               border-bottom: 2px solid #333;
               padding-bottom: 20px;
+            }
+            .header .logo {
+              max-width: 150px;
+              height: auto;
+              margin-bottom: 15px;
             }
             .header h1 { 
               margin: 0; 
@@ -217,6 +236,7 @@ export const ReceiptDetails: React.FC<ReceiptDetailsProps> = ({ receipt, isOpen,
         </head>
         <body>
           <div class="header">
+            ${logoBase64 ? `<img src="${logoBase64}" alt="Prime Fitness Logo" class="logo" />` : ''}
             <h1>Prime Fitness Health Point </h1>
             <h2>Payment Receipt</h2>
           </div>

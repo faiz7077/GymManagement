@@ -16,236 +16,287 @@ interface SalaryReceiptData {
 }
 
 export class StaffSalaryPDFGenerator {
+  private static readonly DEFAULT_GYM_INFO = {
+    name: 'PRIME FITNESS and HEALTH POINT',
+    address: '71 Tarani Colony, B/h Forest Office',
+    phone: '8109750604',
+    email: 'PRIMEFITNESSPOINT@GMAIL.COM'
+  };
+
+  // Helper method to load logo as base64
+  private static async loadLogoAsBase64(): Promise<string | null> {
+    try {
+      const response = await fetch('/Mono-1.png');
+      const blob = await response.blob();
+      return new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+    } catch (error) {
+      console.error('Error loading logo:', error);
+      return null;
+    }
+  }
+
+  // Helper function to convert number to words
+  private static numberToWords(num: number): string {
+    const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine'];
+    const tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+    const teens = ['Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
+
+    if (num === 0) return 'Zero';
+
+    const convert = (n: number): string => {
+      if (n < 10) return ones[n];
+      if (n < 20) return teens[n - 10];
+      if (n < 100) return tens[Math.floor(n / 10)] + (n % 10 ? ' ' + ones[n % 10] : '');
+      if (n < 1000) return ones[Math.floor(n / 100)] + ' Hundred' + (n % 100 ? ' ' + convert(n % 100) : '');
+      if (n < 100000) return convert(Math.floor(n / 1000)) + ' Thousand' + (n % 1000 ? ' ' + convert(n % 1000) : '');
+      if (n < 10000000) return convert(Math.floor(n / 100000)) + ' Lakh' + (n % 100000 ? ' ' + convert(n % 100000) : '');
+      return convert(Math.floor(n / 10000000)) + ' Crore' + (n % 10000000 ? ' ' + convert(n % 10000000) : '');
+    };
+
+    const rupees = Math.floor(num);
+    const paise = Math.round((num - rupees) * 100);
+
+    let result = convert(rupees) + ' Rupees';
+    if (paise > 0) {
+      result += ' and ' + convert(paise) + ' Paise';
+    }
+    return result + ' Only';
+  }
+
   static async generateSalaryReceiptPDF(data: SalaryReceiptData): Promise<Blob> {
     const { receipt, staff, salaryDetails } = data;
+    const gymInfo = this.DEFAULT_GYM_INFO;
+
+    // Calculate amounts
+    const baseSalary = salaryDetails.baseSalary || 0;
+    const bonus = salaryDetails.bonus || 0;
+    const deductions = salaryDetails.deductions || 0;
+    const totalAmount = salaryDetails.finalAmount || receipt.amount || (baseSalary + bonus - deductions);
+
+    // Load logo
+    const logoBase64 = await this.loadLogoAsBase64();
+
+    // Create PDF
+    const pdf = new jsPDF('p', 'mm', 'a4');
+    const pageWidth = pdf.internal.pageSize.getWidth();
+
+    pdf.setFont('helvetica', 'normal');
+    pdf.setFontSize(11);
+    const lineHeight = 6;
+    let y = 20;
+
+    // === HEADER WITH LOGO ON LEFT ===
+    const headerStartY = y;
     
-    // Create new PDF document
-    const doc = new jsPDF();
-    
-    // Set up colors
-    const primaryColor = '#2563eb'; // Blue
-    const secondaryColor = '#64748b'; // Gray
-    const successColor = '#16a34a'; // Green
-    
-    // Header
-    doc.setFillColor(primaryColor);
-    doc.rect(0, 0, 210, 40, 'F');
-    
-    // Company Logo/Name
-    doc.setTextColor(255, 255, 255);
-    doc.setFontSize(24);
-    doc.setFont('helvetica', 'bold');
-    doc.text('FITNESS GYM', 20, 25);
-    
-    // Receipt title
-    doc.setFontSize(14);
-    doc.setFont('helvetica', 'normal');
-    const receiptTitle = salaryDetails.receiptType === 'salary' ? 'SALARY RECEIPT' : 
-                        salaryDetails.receiptType === 'bonus' ? 'BONUS RECEIPT' : 
-                        'SALARY ADJUSTMENT RECEIPT';
-    doc.text(receiptTitle, 140, 25);
-    
-    // Reset text color
-    doc.setTextColor(0, 0, 0);
-    
-    // Receipt details section
-    let yPos = 60;
-    
-    // Receipt number and date
-    doc.setFontSize(12);
-    doc.setFont('helvetica', 'bold');
-    doc.text('Receipt No:', 20, yPos);
-    doc.setFont('helvetica', 'normal');
-    doc.text(receipt.receipt_number, 60, yPos);
-    
-    doc.setFont('helvetica', 'bold');
-    doc.text('Date:', 140, yPos);
-    doc.setFont('helvetica', 'normal');
+    if (logoBase64) {
+      try {
+        // Add logo on the left (28mm width, auto height)
+        // Offset logo up by 5mm to align with gym name text
+        const logoWidth = 28;
+        const logoX = 15;
+        const logoY = y - 5; // Move logo up to align with text baseline
+        pdf.addImage(logoBase64, 'PNG', logoX, logoY, logoWidth, 0, undefined, 'FAST');
+      } catch (error) {
+        console.error('Error adding logo to PDF:', error);
+      }
+    }
+
+    // Gym info in center (starting after logo)
+    const gymInfoX = 50;
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(14);
+    pdf.text(gymInfo.name, gymInfoX, y);
+    pdf.setFont('helvetica', 'normal');
+    pdf.setFontSize(11);
+    y += lineHeight + 2;
+    pdf.text(gymInfo.address, gymInfoX, y);
+    y += lineHeight;
+    pdf.text(gymInfo.phone, gymInfoX, y);
+    y += lineHeight;
+    pdf.text(gymInfo.email, gymInfoX, y);
+
+    // Right-side header info (receipt number and date)
+    pdf.setFont('helvetica', 'bold');
+    pdf.text('Receipt No:', pageWidth - 70, headerStartY);
+    pdf.setFont('helvetica', 'normal');
+    pdf.text(receipt.receipt_number || '---', pageWidth - 40, headerStartY);
+
+    pdf.setFont('helvetica', 'bold');
+    pdf.text('Date:', pageWidth - 70, headerStartY + 6);
+    pdf.setFont('helvetica', 'normal');
     const receiptDate = receipt.created_at ? new Date(receipt.created_at) : new Date();
-    const formattedReceiptDate = isValid(receiptDate) ? format(receiptDate, 'dd/MM/yyyy') : format(new Date(), 'dd/MM/yyyy');
-    doc.text(formattedReceiptDate, 160, yPos);
+    pdf.text(format(receiptDate, 'dd-MMM-yyyy'), pageWidth - 40, headerStartY + 6);
+
+    y += 12;
+
+    // === STAFF INFO ===
+    pdf.setDrawColor(0);
+    pdf.rect(15, y, pageWidth - 30, 16);
+    pdf.setFont('helvetica', 'bold');
+    pdf.text('Name:', 20, y + 6);
+    pdf.setFont('helvetica', 'normal');
+    pdf.text(staff.name || 'N/A', 40, y + 6);
+
+    pdf.setFont('helvetica', 'bold');
+    pdf.text('Staff ID:', pageWidth / 2, y + 6);
+    pdf.setFont('helvetica', 'normal');
+    pdf.text(`#${staff.id.substring(0, 8)}`, pageWidth / 2 + 25, y + 6);
+
+    pdf.setFont('helvetica', 'bold');
+    pdf.text('Mail ID:', 20, y + 12);
+    pdf.setFont('helvetica', 'normal');
+    pdf.text(staff.email || 'NA', 40, y + 12);
+
+    pdf.setFont('helvetica', 'bold');
+    pdf.text('Mobile No:', pageWidth / 2, y + 12);
+    pdf.setFont('helvetica', 'normal');
+    pdf.text(staff.phone || 'N/A', pageWidth / 2 + 25, y + 12);
+
+    y += 22;
+
+    // === SALARY DETAILS SECTION (TWO COLUMNS) ===
+    const boxStartY = y;
+    pdf.rect(15, boxStartY, (pageWidth - 30) / 2, 90);
+    pdf.rect(15 + (pageWidth - 30) / 2, boxStartY, (pageWidth - 30) / 2, 90);
+
+    const leftX = 20;
+    const rightX = pageWidth / 2 + 5;
+    const lineGap = 8;
+    let leftY = boxStartY + 8;
+
+    // LEFT COLUMN - Salary Details
+    pdf.setFont('helvetica', 'bold');
+    pdf.text('Salary Period:', leftX, leftY);
+    pdf.setFont('helvetica', 'normal');
+    pdf.text(salaryDetails.month, leftX + 35, leftY);
+
+    leftY += lineGap;
+    pdf.setFont('helvetica', 'bold');
+    pdf.text('Role:', leftX, leftY);
+    pdf.setFont('helvetica', 'normal');
+    pdf.text(staff.role.charAt(0).toUpperCase() + staff.role.slice(1), leftX + 35, leftY);
+
+    leftY += lineGap;
+    pdf.setFont('helvetica', 'bold');
+    pdf.text('Joining Date:', leftX, leftY);
+    pdf.setFont('helvetica', 'normal');
+    const joiningDate = staff.joiningDate ? new Date(staff.joiningDate) : null;
+    pdf.text(joiningDate && isValid(joiningDate) ? format(joiningDate, 'dd-MMM-yyyy') : 'N/A', leftX + 35, leftY);
+
+    leftY += lineGap;
+    pdf.setFont('helvetica', 'bold');
+    pdf.text('Receipt Type:', leftX, leftY);
+    pdf.setFont('helvetica', 'normal');
+    const receiptTypeText = salaryDetails.receiptType.charAt(0).toUpperCase() + salaryDetails.receiptType.slice(1);
+    pdf.text(receiptTypeText, leftX + 35, leftY);
+
+    leftY += lineGap;
+    pdf.setFont('helvetica', 'bold');
+    pdf.text('Pay Mode:', leftX, leftY);
+    pdf.setFont('helvetica', 'normal');
+    pdf.text((receipt.payment_type || 'Cash').toUpperCase(), leftX + 35, leftY);
+
+    leftY += lineGap;
+    pdf.setFont('helvetica', 'bold');
+    pdf.text('Pay Details:', leftX, leftY);
+    pdf.setFont('helvetica', 'normal');
+    const payDetailsStartX = leftX + 35;
+    const maxPayDetailsWidth = (pageWidth / 2) - payDetailsStartX - 10;
+    const payDetailsText = receipt.description || 'N/A';
+    let payDetailsLines = pdf.splitTextToSize(payDetailsText, maxPayDetailsWidth);
     
-    yPos += 20;
-    
-    // Staff details section
-    doc.setFillColor(248, 250, 252);
-    doc.rect(15, yPos - 5, 180, 50, 'F');
-    
-    doc.setFontSize(14);
-    doc.setFont('helvetica', 'bold');
-    doc.text('Staff Details', 20, yPos + 5);
-    
-    yPos += 15;
-    doc.setFontSize(11);
-    
-    // Staff name
-    doc.setFont('helvetica', 'bold');
-    doc.text('Name:', 20, yPos);
-    doc.setFont('helvetica', 'normal');
-    doc.text(staff.name, 50, yPos);
-    
-    // Staff role
-    doc.setFont('helvetica', 'bold');
-    doc.text('Role:', 120, yPos);
-    doc.setFont('helvetica', 'normal');
-    doc.text(staff.role.charAt(0).toUpperCase() + staff.role.slice(1), 140, yPos);
-    
-    yPos += 12;
-    
-    // Staff ID and joining date
-    doc.setFont('helvetica', 'bold');
-    doc.text('Staff ID:', 20, yPos);
-    doc.setFont('helvetica', 'normal');
-    doc.text(`#${staff.id.substring(0, 8)}`, 50, yPos);
-    
-    doc.setFont('helvetica', 'bold');
-    doc.text('Joining Date:', 120, yPos);
-    doc.setFont('helvetica', 'normal');
-    const joiningDate = staff.joiningDate ? new Date(staff.joiningDate) : new Date();
-    const formattedJoiningDate = isValid(joiningDate) ? format(joiningDate, 'dd/MM/yyyy') : 'N/A';
-    doc.text(formattedJoiningDate, 160, yPos);
-    
-    yPos += 12;
-    
-    // Phone and email
-    doc.setFont('helvetica', 'bold');
-    doc.text('Phone:', 20, yPos);
-    doc.setFont('helvetica', 'normal');
-    doc.text(staff.phone, 50, yPos);
-    
-    if (staff.email) {
-      doc.setFont('helvetica', 'bold');
-      doc.text('Email:', 120, yPos);
-      doc.setFont('helvetica', 'normal');
-      doc.text(staff.email, 140, yPos);
+    // Limit to 2 lines max and truncate if needed
+    if (payDetailsLines.length > 2) {
+      payDetailsLines = [payDetailsLines[0], payDetailsLines[1].substring(0, 30) + '...'];
     }
     
-    yPos += 25;
+    pdf.text(payDetailsLines, payDetailsStartX, leftY);
+    leftY += lineGap * payDetailsLines.length;
+
+    pdf.setFont('helvetica', 'bold');
+    pdf.text('Paid By:', leftX, leftY);
+    pdf.setFont('helvetica', 'normal');
+    pdf.text(receipt.created_by || 'Admin', leftX + 35, leftY);
+
+    leftY += lineGap;
+    pdf.setFont('helvetica', 'bold');
+    pdf.text('Amt In Word:', leftX, leftY);
+    pdf.setFont('helvetica', 'normal');
+    pdf.setFontSize(9);
+    const amountInWords = this.numberToWords(totalAmount);
+    const wordLines = pdf.splitTextToSize(amountInWords, 70);
+    pdf.text(wordLines, leftX + 35, leftY);
+    pdf.setFontSize(11);
+
+    // Calculate remaining space in box and ensure Note fits inside
+    const boxMaxY = boxStartY + 90 - 5; // 5mm padding from bottom
+    const spaceForNote = boxMaxY - leftY;
+    const wordLinesSpace = lineGap * wordLines.length;
     
-    // Payment details section
-    doc.setFillColor(primaryColor);
-    doc.rect(15, yPos - 5, 180, 15, 'F');
-    
-    doc.setTextColor(255, 255, 255);
-    doc.setFontSize(14);
-    doc.setFont('helvetica', 'bold');
-    doc.text('Payment Details', 20, yPos + 5);
-    
-    doc.setTextColor(0, 0, 0);
-    yPos += 25;
-    
-    // Payment breakdown
-    doc.setFontSize(11);
-    
-    // Month/Period
-    doc.setFont('helvetica', 'bold');
-    doc.text('Payment Period:', 20, yPos);
-    doc.setFont('helvetica', 'normal');
-    doc.text(salaryDetails.month, 70, yPos);
-    
-    yPos += 15;
-    
-    // Base salary
-    doc.setFont('helvetica', 'bold');
-    doc.text('Base Salary:', 20, yPos);
-    doc.setFont('helvetica', 'normal');
-    doc.text(`$${salaryDetails.baseSalary.toFixed(2)}`, 70, yPos);
-    
-    yPos += 12;
-    
-    // Bonus (if applicable)
-    if (salaryDetails.bonus && salaryDetails.bonus > 0) {
-      doc.setFont('helvetica', 'bold');
-      doc.text('Bonus:', 20, yPos);
-      doc.setFont('helvetica', 'normal');
-      doc.setTextColor(successColor);
-      doc.text(`+$${salaryDetails.bonus.toFixed(2)}`, 70, yPos);
-      doc.setTextColor(0, 0, 0);
-      yPos += 12;
+    // Use smaller spacing if needed to fit Note inside box
+    if (leftY + wordLinesSpace + lineGap * 1.5 > boxMaxY) {
+      leftY += Math.min(wordLinesSpace, spaceForNote - lineGap * 1.5);
+    } else {
+      leftY += wordLinesSpace;
     }
     
-    // Deductions (if applicable)
-    if (salaryDetails.deductions && salaryDetails.deductions > 0) {
-      doc.setFont('helvetica', 'bold');
-      doc.text('Deductions:', 20, yPos);
-      doc.setFont('helvetica', 'normal');
-      doc.setTextColor(220, 38, 38); // Red
-      doc.text(`-$${salaryDetails.deductions.toFixed(2)}`, 70, yPos);
-      doc.setTextColor(0, 0, 0);
-      yPos += 12;
+    // Add extra padding before Note field
+    leftY += lineGap * 0.5;
+    
+    // Only add Note if it fits inside the box
+    if (leftY + lineGap <= boxMaxY) {
+      pdf.setFont('helvetica', 'bold');
+      pdf.text('Note:', leftX, leftY);
+      pdf.setFont('helvetica', 'normal');
+      pdf.text('N/A', leftX + 20, leftY);
     }
-    
-    // Separator line
-    doc.setDrawColor(200, 200, 200);
-    doc.line(20, yPos + 5, 190, yPos + 5);
-    yPos += 15;
-    
-    // Final amount
-    const finalAmount = salaryDetails.finalAmount || receipt.amount;
-    doc.setFillColor(248, 250, 252);
-    doc.rect(15, yPos - 5, 180, 20, 'F');
-    
-    doc.setFontSize(14);
-    doc.setFont('helvetica', 'bold');
-    doc.text('Total Amount:', 20, yPos + 5);
-    doc.setTextColor(successColor);
-    doc.text(`$${finalAmount.toFixed(2)}`, 140, yPos + 5);
-    doc.setTextColor(0, 0, 0);
-    
-    yPos += 30;
-    
-    // Payment method
-    doc.setFontSize(11);
-    doc.setFont('helvetica', 'bold');
-    doc.text('Payment Method:', 20, yPos);
-    doc.setFont('helvetica', 'normal');
-    const paymentMethod = receipt.payment_type.replace('_', ' ').toUpperCase();
-    doc.text(paymentMethod, 80, yPos);
-    
-    yPos += 15;
-    
-    // Description
-    if (receipt.description) {
-      doc.setFont('helvetica', 'bold');
-      doc.text('Description:', 20, yPos);
-      doc.setFont('helvetica', 'normal');
-      
-      // Handle long descriptions
-      const description = receipt.description;
-      const maxWidth = 120;
-      const lines = doc.splitTextToSize(description, maxWidth);
-      doc.text(lines, 20, yPos + 10);
-      yPos += (lines.length * 5) + 15;
-    }
-    
-    // Footer
-    yPos = Math.max(yPos, 250); // Ensure minimum position
-    
-    // Signature section
-    doc.setDrawColor(200, 200, 200);
-    doc.line(20, yPos, 80, yPos);
-    doc.line(130, yPos, 190, yPos);
-    
-    doc.setFontSize(10);
-    doc.setFont('helvetica', 'normal');
-    doc.text('Authorized Signature', 25, yPos + 10);
-    doc.text('Staff Signature', 145, yPos + 10);
-    
-    yPos += 25;
-    
-    // Company footer
-    doc.setFillColor(248, 250, 252);
-    doc.rect(0, yPos, 210, 30, 'F');
-    
-    doc.setFontSize(9);
-    doc.setTextColor(secondaryColor);
-    doc.text('This is a computer-generated salary receipt.', 20, yPos + 10);
-    doc.text(`Generated on: ${format(new Date(), 'dd/MM/yyyy HH:mm')}`, 20, yPos + 20);
-    doc.text('FITNESS GYM - Staff Payroll System', 130, yPos + 15);
-    
-    // Convert to blob
-    const pdfBlob = doc.output('blob');
-    return pdfBlob;
+
+    // RIGHT COLUMN - Amount Breakdown
+    const labelX = rightX + 5;
+    let ry = boxStartY + 8;
+    pdf.setFont('helvetica', 'bold');
+    pdf.text('Base Salary', labelX, ry);
+    pdf.setFont('helvetica', 'normal');
+    pdf.text(baseSalary.toFixed(2), pageWidth - 20, ry, { align: 'right' });
+
+    ry += lineGap;
+    pdf.setFont('helvetica', 'bold');
+    pdf.text('Bonus', labelX, ry);
+    pdf.setFont('helvetica', 'normal');
+    pdf.text(bonus.toFixed(2), pageWidth - 20, ry, { align: 'right' });
+
+    ry += lineGap;
+    pdf.setFont('helvetica', 'bold');
+    pdf.text('Deductions', labelX, ry);
+    pdf.setFont('helvetica', 'normal');
+    pdf.text(deductions.toFixed(2), pageWidth - 20, ry, { align: 'right' });
+
+    ry += lineGap * 2;
+    pdf.setFont('helvetica', 'bold');
+    pdf.text('Total', labelX, ry);
+    pdf.setFont('helvetica', 'normal');
+    pdf.text(totalAmount.toFixed(2), pageWidth - 20, ry, { align: 'right' });
+
+    y = boxStartY + 100;
+
+    // === TERMS ===
+    pdf.setFont('helvetica', 'bold');
+    pdf.text('Terms and Conditions:', 20, y);
+    pdf.setFont('helvetica', 'normal');
+    pdf.setFontSize(9);
+    pdf.text('1) This is a salary receipt for the mentioned period.', 20, y + 6);
+    pdf.text('2) Please verify all details and report any discrepancies within 7 days.', 20, y + 12);
+    pdf.text('3) This receipt is valid for tax and accounting purposes.', 20, y + 18);
+
+    pdf.setDrawColor(150);
+    pdf.line(15, 285, pageWidth - 15, 285);
+
+    return pdf.output('blob');
   }
 
   static async downloadSalaryReceiptPDF(data: SalaryReceiptData): Promise<void> {

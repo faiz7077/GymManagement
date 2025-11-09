@@ -248,7 +248,21 @@ export const StaffSalary: React.FC = () => {
         }
     };
 
-    const handlePrintReceipt = (receipt: Receipt) => {
+    const handlePrintReceipt = async (receipt: Receipt) => {
+        // Load logo as base64
+        let logoBase64 = '';
+        try {
+            const response = await fetch('/Mono-1.png');
+            const blob = await response.blob();
+            logoBase64 = await new Promise<string>((resolve) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result as string);
+                reader.readAsDataURL(blob);
+            });
+        } catch (error) {
+            console.error('Error loading logo:', error);
+        }
+
         // Create a new window for printing
         const printWindow = window.open('', '_blank');
         if (!printWindow) return;
@@ -263,6 +277,7 @@ export const StaffSalary: React.FC = () => {
               <style>
                 body { font-family: Arial, sans-serif; margin: 20px; }
                 .header { text-align: center; margin-bottom: 30px; }
+                .header .logo { max-width: 150px; height: auto; margin-bottom: 15px; }
                 .receipt-details { margin-bottom: 20px; }
                 .receipt-details table { width: 100%; border-collapse: collapse; }
                 .receipt-details td { padding: 8px; border-bottom: 1px solid #eee; }
@@ -273,6 +288,7 @@ export const StaffSalary: React.FC = () => {
             </head>
             <body>
               <div class="header">
+                ${logoBase64 ? `<img src="${logoBase64}" alt="Prime Fitness Logo" class="logo" />` : ''}
                 <h1>Prime Fitness Health Point </h1>
                 <h2>Staff Salary Receipt</h2>
               </div>

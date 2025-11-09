@@ -362,6 +362,14 @@ export interface PDFGenerationOptions {
   gymEmail?: string;
 }
 
+export interface StaffMember {
+  id?: string;
+  name?: string;
+  role?: string;
+  mobile?: string;
+  email?: string;
+}
+
 // Helper function to convert number to words
 function numberToWords(num: number): string {
   const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine'];
@@ -398,6 +406,23 @@ export class ReceiptPDFGenerator {
     email: 'PRIMEFITNESSPOINT@GMAIL.COM'
   };
 
+  // Helper method to load logo as base64
+  private static async loadLogoAsBase64(): Promise<string | null> {
+    try {
+      const response = await fetch('/Mono-1.png');
+      const blob = await response.blob();
+      return new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+    } catch (error) {
+      console.error('Error loading logo:', error);
+      return null;
+    }
+  }
+
   static async generateReceiptPDF(options: PDFGenerationOptions): Promise<Blob> {
     const { receipt } = options;
     const gymInfo = {
@@ -421,6 +446,9 @@ export class ReceiptPDFGenerator {
     const paidAmount = receipt.amount_paid || receipt.amount || totalAmount;
     const balanceAmount = receipt.due_amount || Math.max(0, totalAmount - paidAmount);
 
+    // Load logo
+    const logoBase64 = await this.loadLogoAsBase64();
+
     // Create PDF
     const pdf = new jsPDF('p', 'mm', 'a4');
     const pageWidth = pdf.internal.pageSize.getWidth();
@@ -430,27 +458,46 @@ export class ReceiptPDFGenerator {
     const lineHeight = 6;
     let y = 20;
 
-    // === HEADER ===
-    pdf.setFont('helvetica', 'bold');
-    pdf.text(gymInfo.name, 20, y);
-    pdf.setFont('helvetica', 'normal');
-    y += lineHeight;
-    pdf.text(gymInfo.address, 20, y);
-    y += lineHeight;
-    pdf.text(gymInfo.phone, 20, y);
-    y += lineHeight;
-    pdf.text(gymInfo.email, 20, y);
+    // === HEADER WITH LOGO ON LEFT ===
+    const headerStartY = y;
+    
+    if (logoBase64) {
+      try {
+        // Add logo on the left (28mm width, auto height)
+        // Offset logo up by 5mm to align with gym name text
+        const logoWidth = 28;
+        const logoX = 15;
+        const logoY = y - 5; // Move logo up to align with text baseline
+        pdf.addImage(logoBase64, 'PNG', logoX, logoY, logoWidth, 0, undefined, 'FAST');
+      } catch (error) {
+        console.error('Error adding logo to PDF:', error);
+      }
+    }
 
-    // Right-side header info
+    // Gym info in center (starting after logo)
+    const gymInfoX = 50;
     pdf.setFont('helvetica', 'bold');
-    pdf.text('Receipt No:', pageWidth - 70, 20);
+    pdf.setFontSize(14);
+    pdf.text(gymInfo.name, gymInfoX, y);
     pdf.setFont('helvetica', 'normal');
-    pdf.text(receipt.receipt_number || '---', pageWidth - 40, 20);
+    pdf.setFontSize(11);
+    y += lineHeight + 2;
+    pdf.text(gymInfo.address, gymInfoX, y);
+    y += lineHeight;
+    pdf.text(gymInfo.phone, gymInfoX, y);
+    y += lineHeight;
+    pdf.text(gymInfo.email, gymInfoX, y);
+
+    // Right-side header info (receipt number and date)
+    pdf.setFont('helvetica', 'bold');
+    pdf.text('Receipt No:', pageWidth - 70, headerStartY);
+    pdf.setFont('helvetica', 'normal');
+    pdf.text(receipt.receipt_number || '---', pageWidth - 40, headerStartY);
 
     pdf.setFont('helvetica', 'bold');
-    pdf.text('Date:', pageWidth - 70, 26);
+    pdf.text('Date:', pageWidth - 70, headerStartY + 6);
     pdf.setFont('helvetica', 'normal');
-    pdf.text(format(new Date(receipt.created_at), 'dd-MMM-yyyy'), pageWidth - 40, 26);
+    pdf.text(format(new Date(receipt.created_at), 'dd-MMM-yyyy'), pageWidth - 40, headerStartY + 6);
 
     y += 12;
 
@@ -572,11 +619,28 @@ export class ReceiptPDFGenerator {
     pdf.text(wordLines, leftX + 30, leftY);
     pdf.setFontSize(11);
 
-    leftY += lineGap * 2;
-    pdf.setFont('helvetica', 'bold');
-    pdf.text('Note:', leftX, leftY);
-    pdf.setFont('helvetica', 'normal');
-    pdf.text('N/A', leftX + 20, leftY);
+    // Calculate remaining space in box and ensure Note fits inside
+    const boxMaxY = boxStartY + 90 - 5; // 5mm padding from bottom
+    const spaceForNote = boxMaxY - leftY;
+    const wordLinesSpace = lineGap * wordLines.length;
+    
+    // Use smaller spacing if needed to fit Note inside box
+    if (leftY + wordLinesSpace + lineGap * 1.5 > boxMaxY) {
+      leftY += Math.min(wordLinesSpace, spaceForNote - lineGap * 1.5);
+    } else {
+      leftY += wordLinesSpace;
+    }
+    
+    // Add extra padding before Note field
+    leftY += lineGap * 0.5;
+    
+    // Only add Note if it fits inside the box
+    if (leftY + lineGap <= boxMaxY) {
+      pdf.setFont('helvetica', 'bold');
+      pdf.text('Note:', leftX, leftY);
+      pdf.setFont('helvetica', 'normal');
+      pdf.text('N/A', leftX + 20, leftY);
+    }
 
     // === FEES TABLE (RIGHT SIDE) ===
     const labelX = rightX + 5;
@@ -678,5 +742,188 @@ export async function downloadReceiptsAsZip(receipts: Receipt[]): Promise<void> 
   for (const receipt of receipts) {
     await ReceiptPDFGenerator.downloadReceiptPDF(receipt);
     await new Promise(resolve => setTimeout(resolve, 500));
+  }
+}
+
+// Salary Receipt PDF Generator
+export class SalaryReceiptPDFGenerator {
+  private static readonly DEFAULT_GYM_INFO = {
+    name: 'PRIME FITNESS and HEALTH POINT',
+    address: '71 Tarani Colony, B/h Forest Office',
+    phone: '8109750604',
+    email: 'PRIMEFITNESSPOINT@GMAIL.COM'
+  };
+
+  // Helper method to load logo as base64
+  private static async loadLogoAsBase64(): Promise<string | null> {
+    try {
+      const response = await fetch('/Mono-1.png');
+      const blob = await response.blob();
+      return new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+    } catch (error) {
+      console.error('Error loading logo:', error);
+      return null;
+    }
+  }
+
+  static async generateSalaryReceiptPDF(receipt: Receipt, staffMember?: StaffMember): Promise<Blob> {
+    const gymInfo = this.DEFAULT_GYM_INFO;
+
+    // Load logo
+    const logoBase64 = await this.loadLogoAsBase64();
+
+    // Create PDF
+    const pdf = new jsPDF('p', 'mm', 'a4');
+    const pageWidth = pdf.internal.pageSize.getWidth();
+
+    pdf.setFont('helvetica', 'normal');
+    pdf.setFontSize(11);
+    const lineHeight = 6;
+    let y = 20;
+
+    // === HEADER WITH LOGO ON LEFT ===
+    const headerStartY = y;
+    
+    if (logoBase64) {
+      try {
+        // Add logo on the left (28mm width, auto height)
+        // Offset logo up by 5mm to align with gym name text
+        const logoWidth = 28;
+        const logoX = 15;
+        const logoY = y - 5; // Move logo up to align with text baseline
+        pdf.addImage(logoBase64, 'PNG', logoX, logoY, logoWidth, 0, undefined, 'FAST');
+      } catch (error) {
+        console.error('Error adding logo to PDF:', error);
+      }
+    }
+
+    // Gym info in center (starting after logo)
+    const gymInfoX = 50;
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(14);
+    pdf.text(gymInfo.name, gymInfoX, y);
+    pdf.setFont('helvetica', 'normal');
+    pdf.setFontSize(11);
+    y += lineHeight + 2;
+    pdf.text(gymInfo.address, gymInfoX, y);
+    y += lineHeight;
+    pdf.text(gymInfo.phone, gymInfoX, y);
+    y += lineHeight;
+    pdf.text(gymInfo.email, gymInfoX, y);
+
+    // Right-side header info (receipt number and date)
+    pdf.setFont('helvetica', 'bold');
+    pdf.text('Receipt No:', pageWidth - 70, headerStartY);
+    pdf.setFont('helvetica', 'normal');
+    pdf.text(receipt.receipt_number || '---', pageWidth - 40, headerStartY);
+
+    pdf.setFont('helvetica', 'bold');
+    pdf.text('Date:', pageWidth - 70, headerStartY + 6);
+    pdf.setFont('helvetica', 'normal');
+    pdf.text(format(new Date(receipt.created_at), 'dd-MMM-yyyy'), pageWidth - 40, headerStartY + 6);
+
+    y += 15;
+
+    // === SALARY RECEIPT TITLE ===
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(16);
+    pdf.text('STAFF SALARY RECEIPT', pageWidth / 2, y, { align: 'center' });
+    pdf.setFontSize(11);
+    y += 15;
+
+    // === STAFF INFO ===
+    pdf.setDrawColor(0);
+    pdf.rect(15, y, pageWidth - 30, 20);
+    pdf.setFont('helvetica', 'bold');
+    pdf.text('Staff Name:', 20, y + 8);
+    pdf.setFont('helvetica', 'normal');
+    pdf.text(receipt.member_name || 'N/A', 50, y + 8);
+
+    pdf.setFont('helvetica', 'bold');
+    pdf.text('Role:', pageWidth / 2, y + 8);
+    pdf.setFont('helvetica', 'normal');
+    pdf.text(staffMember?.role || 'Staff', pageWidth / 2 + 20, y + 8);
+
+    pdf.setFont('helvetica', 'bold');
+    pdf.text('Mobile:', 20, y + 14);
+    pdf.setFont('helvetica', 'normal');
+    pdf.text(receipt.mobile_no || 'N/A', 50, y + 14);
+
+    pdf.setFont('helvetica', 'bold');
+    pdf.text('Email:', pageWidth / 2, y + 14);
+    pdf.setFont('helvetica', 'normal');
+    pdf.text(receipt.email || 'N/A', pageWidth / 2 + 20, y + 14);
+
+    y += 30;
+
+    // === SALARY DETAILS ===
+    pdf.setFont('helvetica', 'bold');
+    pdf.text('Salary Details:', 20, y);
+    y += 10;
+
+    pdf.rect(15, y, pageWidth - 30, 40);
+    
+    pdf.setFont('helvetica', 'bold');
+    pdf.text('Description:', 20, y + 8);
+    pdf.setFont('helvetica', 'normal');
+    pdf.text(receipt.description || 'Monthly Salary', 50, y + 8);
+
+    pdf.setFont('helvetica', 'bold');
+    pdf.text('Amount:', 20, y + 16);
+    pdf.setFont('helvetica', 'normal');
+    pdf.text(`₹${(receipt.amount || 0).toFixed(2)}`, 50, y + 16);
+
+    pdf.setFont('helvetica', 'bold');
+    pdf.text('Payment Mode:', 20, y + 24);
+    pdf.setFont('helvetica', 'normal');
+    pdf.text((receipt.payment_type || 'Cash').toUpperCase(), 50, y + 24);
+
+    pdf.setFont('helvetica', 'bold');
+    pdf.text('Paid By:', 20, y + 32);
+    pdf.setFont('helvetica', 'normal');
+    pdf.text(receipt.created_by || 'Admin', 50, y + 32);
+
+    y += 50;
+
+    // === AMOUNT IN WORDS ===
+    pdf.setFont('helvetica', 'bold');
+    pdf.text('Amount in Words:', 20, y);
+    pdf.setFont('helvetica', 'normal');
+    pdf.setFontSize(10);
+    const amountInWords = numberToWords(receipt.amount || 0);
+    const wordLines = pdf.splitTextToSize(amountInWords, pageWidth - 40);
+    pdf.text(wordLines, 20, y + 8);
+    pdf.setFontSize(11);
+
+    y += 25;
+
+    // === SIGNATURE SECTION ===
+    y += 20;
+    pdf.setFont('helvetica', 'normal');
+    pdf.text('Staff Signature: ____________________', 20, y);
+    pdf.text('Authorized Signature: ____________________', pageWidth - 80, y);
+
+    // Footer
+    pdf.setDrawColor(150);
+    pdf.line(15, 285, pageWidth - 15, 285);
+    pdf.setFontSize(9);
+    pdf.text('This is a computer generated receipt.', pageWidth / 2, 290, { align: 'center' });
+
+    return pdf.output('blob');
+  }
+
+  static async downloadSalaryReceiptPDF(receipt: Receipt, staffMember?: StaffMember): Promise<void> {
+    const pdfBlob = await this.generateSalaryReceiptPDF(receipt, staffMember);
+    const url = URL.createObjectURL(pdfBlob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `Salary_${receipt.receipt_number}_${receipt.member_name.replace(/\s+/g, '_')}.pdf`;
+    link.click();
+    URL.revokeObjectURL(url);
   }
 }
