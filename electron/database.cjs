@@ -26,6 +26,7 @@ class DatabaseService {
       this.db.pragma('journal_mode = WAL');
 
       this.createTables();
+      this.addTrainerColumns(); // Add trainer columns migration
       this.initializeDefaultData();
 
       console.log('Database initialized successfully');
@@ -1114,6 +1115,70 @@ class DatabaseService {
       // If migration fails, we don't want to break the app
       console.log('Migration failed, but continuing with app startup...');
     }
+
+    // Add trainer assignment columns to members table if they don't exist
+    try {
+      // Check if columns exist first
+      const tableInfo = this.db.prepare("PRAGMA table_info(members)").all();
+      const hasTrainerId = tableInfo.some(col => col.name === 'assigned_trainer_id');
+      const hasTrainerName = tableInfo.some(col => col.name === 'assigned_trainer_name');
+      
+      if (!hasTrainerId) {
+        this.db.exec(`ALTER TABLE members ADD COLUMN assigned_trainer_id TEXT`);
+        console.log('✓ Added assigned_trainer_id column to members table');
+      } else {
+        console.log('✓ assigned_trainer_id column already exists');
+      }
+
+      if (!hasTrainerName) {
+        this.db.exec(`ALTER TABLE members ADD COLUMN assigned_trainer_name TEXT`);
+        console.log('✓ Added assigned_trainer_name column to members table');
+      } else {
+        console.log('✓ assigned_trainer_name column already exists');
+      }
+
+      // Create index on assigned_trainer_id for efficient queries
+      this.db.exec(`CREATE INDEX IF NOT EXISTS idx_members_trainer ON members(assigned_trainer_id)`);
+      console.log('✓ Created/verified index on assigned_trainer_id');
+    } catch (error) {
+      console.error('Error adding trainer columns:', error);
+    }
+  }
+
+  addTrainerColumns() {
+    console.log('🔧 Running trainer columns migration...');
+    try {
+      // Check if columns exist first
+      const tableInfo = this.db.prepare("PRAGMA table_info(members)").all();
+      console.log('Current members table columns:', tableInfo.map(c => c.name).join(', '));
+      
+      const hasTrainerId = tableInfo.some(col => col.name === 'assigned_trainer_id');
+      const hasTrainerName = tableInfo.some(col => col.name === 'assigned_trainer_name');
+      
+      if (!hasTrainerId) {
+        console.log('Adding assigned_trainer_id column...');
+        this.db.exec(`ALTER TABLE members ADD COLUMN assigned_trainer_id TEXT`);
+        console.log('✅ Added assigned_trainer_id column to members table');
+      } else {
+        console.log('✓ assigned_trainer_id column already exists');
+      }
+
+      if (!hasTrainerName) {
+        console.log('Adding assigned_trainer_name column...');
+        this.db.exec(`ALTER TABLE members ADD COLUMN assigned_trainer_name TEXT`);
+        console.log('✅ Added assigned_trainer_name column to members table');
+      } else {
+        console.log('✓ assigned_trainer_name column already exists');
+      }
+
+      // Create index on assigned_trainer_id for efficient queries
+      this.db.exec(`CREATE INDEX IF NOT EXISTS idx_members_trainer ON members(assigned_trainer_id)`);
+      console.log('✅ Created/verified index on assigned_trainer_id');
+      
+      console.log('✅ Trainer columns migration completed successfully');
+    } catch (error) {
+      console.error('❌ Error in trainer columns migration:', error);
+    }
   }
 
   initializeDefaultData() {
@@ -1456,6 +1521,121 @@ class DatabaseService {
     }
   }
 
+  // Trainer assignment operations
+  getActiveTrainers() {
+    try {
+      return this.db.prepare(`
+        SELECT * FROM staff 
+        WHERE role = 'trainer' AND status = 'active'
+        ORDER BY name ASC
+      `).all();
+    } catch (error) {
+      console.error('Get active trainers error:', error);
+      return [];
+    }
+  }
+
+  getAllTrainersWithMemberCounts() {
+    try {
+      return this.db.prepare(`
+        SELECT 
+          s.*,
+          COUNT(m.id) as member_count
+        FROM staff s
+        LEFT JOIN members m ON s.id = m.assigned_trainer_id
+        WHERE s.role = 'trainer'
+        GROUP BY s.id
+        ORDER BY s.name ASC
+      `).all();
+    } catch (error) {
+      console.error('Get trainers with member counts error:', error);
+      return [];
+    }
+  }
+
+  getTrainerWithMemberCount(trainerId) {
+    try {
+      return this.db.prepare(`
+        SELECT 
+          s.*,
+          COUNT(m.id) as member_count
+        FROM staff s
+        LEFT JOIN members m ON s.id = m.assigned_trainer_id
+        WHERE s.id = ? AND s.role = 'trainer'
+        GROUP BY s.id
+      `).get(trainerId);
+    } catch (error) {
+      console.error('Get trainer with member count error:', error);
+      return null;
+    }
+  }
+
+  getMembersByTrainer(trainerId) {
+    try {
+      if (!trainerId || trainerId === 'unassigned') {
+        // Return members without a trainer
+        return this.db.prepare(`
+          SELECT * FROM members 
+          WHERE assigned_trainer_id IS NULL OR assigned_trainer_id = ''
+          ORDER BY name ASC
+        `).all();
+      }
+      
+      return this.db.prepare(`
+        SELECT * FROM members 
+        WHERE assigned_trainer_id = ?
+        ORDER BY name ASC
+      `).all(trainerId);
+    } catch (error) {
+      console.error('Get members by trainer error:', error);
+      return [];
+    }
+  }
+
+  assignTrainerToMember(memberId, trainerId, trainerName) {
+    try {
+      // Validate trainer exists
+      const trainer = this.db.prepare('SELECT * FROM staff WHERE id = ? AND role = ?').get(trainerId, 'trainer');
+      
+      if (!trainer) {
+        console.error('Trainer not found:', trainerId);
+        return false;
+      }
+
+      const stmt = this.db.prepare(`
+        UPDATE members 
+        SET assigned_trainer_id = ?, 
+            assigned_trainer_name = ?,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `);
+
+      const result = stmt.run(trainerId, trainerName, memberId);
+      return result.changes > 0;
+    } catch (error) {
+      console.error('Assign trainer to member error:', error);
+      return false;
+    }
+  }
+
+  removeTrainerFromMember(memberId) {
+    try {
+      const stmt = this.db.prepare(`
+        UPDATE members 
+        SET assigned_trainer_id = NULL, 
+            assigned_trainer_name = NULL,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `);
+
+      const result = stmt.run(memberId);
+      return result.changes > 0;
+    } catch (error) {
+      console.error('Remove trainer from member error:', error);
+      return false;
+    }
+  }
+
   // Member operations
   getAllMembers() {
     try {
@@ -1485,6 +1665,13 @@ class DatabaseService {
 
       // Validate required fields and provide defaults
       // Convert camelCase to snake_case for database fields
+      console.log('🎯 Trainer data in memberData:', {
+        assignedTrainerId: memberData.assignedTrainerId,
+        assigned_trainer_id: memberData.assigned_trainer_id,
+        assignedTrainerName: memberData.assignedTrainerName,
+        assigned_trainer_name: memberData.assigned_trainer_name
+      });
+
       const validatedData = {
         id: memberData.id || this.generateId(),
         custom_member_id: memberData.customMemberId || memberData.custom_member_id || this.generateMemberNumber(),
@@ -1520,8 +1707,15 @@ class DatabaseService {
         height: memberData.height || null,
         weight: memberData.weight || null,
         status: memberData.status || 'active',
+        assigned_trainer_id: memberData.assignedTrainerId || memberData.assigned_trainer_id || null,
+        assigned_trainer_name: memberData.assignedTrainerName || memberData.assigned_trainer_name || null,
         created_at: memberData.createdAt || memberData.created_at || new Date().toISOString()
       };
+
+      console.log('🎯 Trainer data in validatedData:', {
+        assigned_trainer_id: validatedData.assigned_trainer_id,
+        assigned_trainer_name: validatedData.assigned_trainer_name
+      });
 
       console.log('Validated member data:', validatedData);
 
@@ -1533,8 +1727,8 @@ class DatabaseService {
           date_of_registration, receipt_no, payment_mode, plan_type, services,
           membership_fees, registration_fee, package_fee, discount, paid_amount,
           subscription_start_date, subscription_end_date, subscription_status,
-          medical_issues, goals, height, weight, status, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          medical_issues, goals, height, weight, status, assigned_trainer_id, assigned_trainer_name, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       const result = stmt.run(
@@ -1572,6 +1766,8 @@ class DatabaseService {
         validatedData.height,
         validatedData.weight,
         validatedData.status,
+        validatedData.assigned_trainer_id,
+        validatedData.assigned_trainer_name,
         validatedData.created_at
       );
 
@@ -1708,7 +1904,7 @@ class DatabaseService {
           membership_fees = ?, registration_fee = ?, package_fee = ?, discount = ?, 
           paid_amount = ?, subscription_start_date = ?, subscription_end_date = ?,
           subscription_status = ?, medical_issues = ?, goals = ?, height = ?, weight = ?,
-          status = ?, updated_at = CURRENT_TIMESTAMP
+          status = ?, assigned_trainer_id = ?, assigned_trainer_name = ?, updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
       `);
 
@@ -1744,6 +1940,8 @@ class DatabaseService {
         memberData.height || null,
         memberData.weight || null,
         memberData.status || 'active',
+        memberData.assigned_trainer_id || null,
+        memberData.assigned_trainer_name || null,
         stringId
       );
 

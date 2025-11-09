@@ -52,6 +52,7 @@ const sidebarItems: SidebarItem[] = [
   { title: "Due Payments", url: "/due-payments", icon: DollarSign, permission: "VIEW_RECEIPTS" },
   { title: "Body Measurements", url: "/measurements", icon: Activity, permission: "VIEW_MEASUREMENTS" },
   { title: "Staff", url: "/staff", icon: UserPlus, permission: "MANAGE_STAFF" },
+  { title: "Trainer Assignments", url: "/trainer-assignments", icon: Dumbbell, permission: "MANAGE_STAFF" },
   { title: "Staff Attendance", url: "/staff-attendance", icon: UserCheck, permission: "VIEW_ATTENDANCE" },
   { title: "Expenses", url: "/expenses", icon: DollarSign, permission: "MANAGE_EXPENSES" },
   { title: "Staff Salary", url: "/salary", icon: TrendingUp, permission: "MANAGE_SALARIES" },

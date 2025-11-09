@@ -40,6 +40,8 @@ export const Members: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [subscriptionFilter, setSubscriptionFilter] = useState<string>('all');
+  const [trainerFilter, setTrainerFilter] = useState<string>('all');
+  const [trainers, setTrainers] = useState<unknown[]>([]);
   const [selectedMember, setSelectedMember] = useState<Member | null>(null);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
@@ -68,6 +70,10 @@ export const Members: React.FC = () => {
       console.log('Loaded members:', memberData?.length || 0);
 
       setMembers(memberData || []);
+      
+      // Load trainers for filter
+      const trainersData = await db.getTrainersWithCounts();
+      setTrainers(trainersData);
     } catch (error) {
       console.error('Error loading members:', error);
       setMembers([]);
@@ -160,11 +166,25 @@ export const Members: React.FC = () => {
       filtered = filtered.filter(member => member.subscriptionStatus === subscriptionFilter);
     }
 
+    // Trainer filter
+    if (trainerFilter !== 'all') {
+      if (trainerFilter === 'unassigned') {
+        filtered = filtered.filter(member => 
+          !member.assignedTrainerId && !member.assigned_trainer_id
+        );
+      } else {
+        filtered = filtered.filter(member => 
+          member.assignedTrainerId === trainerFilter || 
+          member.assigned_trainer_id === trainerFilter
+        );
+      }
+    }
+
     setFilteredMembers(filtered);
     
     // Reset to first page when filters change
     setCurrentPage(1);
-  }, [members, searchTerm, statusFilter, subscriptionFilter]);
+  }, [members, searchTerm, statusFilter, subscriptionFilter, trainerFilter]);
 
   // Pagination logic
   const paginateMembers = useCallback(() => {
@@ -618,6 +638,21 @@ export const Members: React.FC = () => {
               <SelectItem value="pending">Pending</SelectItem>
             </SelectContent>
           </Select>
+          <Select value={trainerFilter} onValueChange={setTrainerFilter}>
+            <SelectTrigger className="w-40">
+              <Filter className="h-4 w-4 mr-2" />
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Trainers</SelectItem>
+              <SelectItem value="unassigned">Unassigned</SelectItem>
+              {trainers.map((trainer) => (
+                <SelectItem key={trainer.id} value={trainer.id}>
+                  {trainer.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       </div>
 
@@ -628,7 +663,7 @@ export const Members: React.FC = () => {
             <CardTitle>Member Overview</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+            <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-2">
               {memberCategories.map((category) => {
                 const Icon = category.icon;
                 return (

@@ -115,6 +115,10 @@ export const MemberForm: React.FC<MemberFormProps> = ({ initialData, enquiryData
   const [masterDataLoaded, setMasterDataLoaded] = useState(false);
   const [isSavingPartial, setIsSavingPartial] = useState(false);
   const [isPartialMember, setIsPartialMember] = useState(initialData?.status === 'partial');
+  const [trainers, setTrainers] = useState<any[]>([]);
+  const [selectedTrainerId, setSelectedTrainerId] = useState<string | null>(
+    (initialData as any)?.assigned_trainer_id || (initialData as unknown)?.assignedTrainerId || null
+  );
   const memberImageInputRef = useRef<HTMLInputElement>(null);
   const idProofInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
@@ -350,6 +354,19 @@ export const MemberForm: React.FC<MemberFormProps> = ({ initialData, enquiryData
     }
   };
 
+  // Load active trainers
+  const loadTrainers = async () => {
+    try {
+      console.log('Loading trainers...');
+      const trainersWithCounts = await db.getTrainersWithCounts();
+      console.log('Trainers loaded:', trainersWithCounts);
+      setTrainers(trainersWithCounts);
+    } catch (error) {
+      console.error('Error loading trainers:', error);
+      setTrainers([]);
+    }
+  };
+
   // Load real-time amounts when component mounts or initialData changes
   useEffect(() => {
     const loadAllMasterData = async () => {
@@ -358,7 +375,8 @@ export const MemberForm: React.FC<MemberFormProps> = ({ initialData, enquiryData
         loadRealTimeAmounts(),
         loadOccupations(),
         loadPackages(),
-        loadPaymentTypes()
+        loadPaymentTypes(),
+        loadTrainers()
       ]);
       setMasterDataLoaded(true);
       console.log('All master data loaded');
@@ -753,6 +771,11 @@ export const MemberForm: React.FC<MemberFormProps> = ({ initialData, enquiryData
 
   const onFormSubmit = (data: MemberFormData) => {
     console.log('Form data being submitted:', data);
+    console.log('🎯 Trainer Assignment Debug:', {
+      selectedTrainerId,
+      trainersAvailable: trainers.length,
+      trainersList: trainers.map(t => ({ id: t.id, name: t.name }))
+    });
 
     // Check for member ID errors before submission
     if (memberIdError) {
@@ -781,7 +804,7 @@ export const MemberForm: React.FC<MemberFormProps> = ({ initialData, enquiryData
       discount: data.discount
     });
 
-    onSubmit({
+    const submissionData = {
       customMemberId: data.customMemberId,
       name: data.name,
       address: data.address,
@@ -823,8 +846,21 @@ export const MemberForm: React.FC<MemberFormProps> = ({ initialData, enquiryData
       phone: undefined,
       profileImage: undefined,
       weight: undefined,
+      // Trainer assignment
+      assignedTrainerId: selectedTrainerId || undefined,
+      assigned_trainer_id: selectedTrainerId || undefined,
+      assignedTrainerName: selectedTrainerId ? trainers.find(t => t.id === selectedTrainerId)?.name : undefined,
+      assigned_trainer_name: selectedTrainerId ? trainers.find(t => t.id === selectedTrainerId)?.name : undefined,
+    };
 
+    console.log('🚀 Submitting member data with trainer info:', {
+      assignedTrainerId: submissionData.assignedTrainerId,
+      assigned_trainer_id: submissionData.assigned_trainer_id,
+      assignedTrainerName: submissionData.assignedTrainerName,
+      assigned_trainer_name: submissionData.assigned_trainer_name
     });
+
+    onSubmit(submissionData as unknown);
   };
 
   return (
@@ -1844,6 +1880,35 @@ export const MemberForm: React.FC<MemberFormProps> = ({ initialData, enquiryData
           {errors.services && (
             <p className="text-sm text-destructive">{errors.services.message}</p>
           )}
+        </div>
+      </div>
+
+      {/* Trainer Assignment */}
+      <div className="space-y-4">
+        <h3 className="text-lg font-semibold">Trainer Assignment (Optional)</h3>
+        <div className="grid grid-cols-1 gap-4">
+          <div className="space-y-2">
+            <Label htmlFor="trainer">Assign Personal Trainer</Label>
+            <Select
+              value={selectedTrainerId || 'none'}
+              onValueChange={(value) => setSelectedTrainerId(value === 'none' ? null : value)}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select a trainer (optional)" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">No Trainer</SelectItem>
+                {trainers.map((trainer) => (
+                  <SelectItem key={trainer.id} value={trainer.id}>
+                    {trainer.name} ({trainer.member_count || 0} members)
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-sm text-muted-foreground">
+              Optionally assign a personal trainer to this member
+            </p>
+          </div>
         </div>
       </div>
 

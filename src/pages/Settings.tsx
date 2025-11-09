@@ -452,8 +452,13 @@ export const Settings: React.FC = () => {
           <TabsList>
             <TabsTrigger value="profile">My Profile</TabsTrigger>
             <TabsTrigger value="password">Change Password</TabsTrigger>
-            <TabsTrigger value="users">Manage Users</TabsTrigger>
-            <TabsTrigger value="permissions">Role Permissions</TabsTrigger>
+            {user?.role === 'admin' && (
+              <>
+                <TabsTrigger value="users">Manage Users</TabsTrigger>
+                <TabsTrigger value="permissions">Role Permissions</TabsTrigger>
+                <TabsTrigger value="system">System</TabsTrigger>
+              </>
+            )}
           </TabsList>
 
           {/* My Profile Tab */}
@@ -985,7 +990,146 @@ export const Settings: React.FC = () => {
               </CardContent>
             </Card>
           </TabsContent>
+
+          {/* System Tab */}
+          {user?.role === 'admin' && (
+            <TabsContent value="system" className="space-y-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <SettingsIcon className="h-5 w-5" />
+                    System Information
+                  </CardTitle>
+                  <CardDescription>
+                    View system information and database location
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  <DatabaseLocation />
+                </CardContent>
+              </Card>
+            </TabsContent>
+          )}
         </Tabs>
+      </div>
+    </div>
+  );
+};
+
+// Database Location Component
+const DatabaseLocation: React.FC = () => {
+  const [dbPath, setDbPath] = useState<string>('');
+  const [loading, setLoading] = useState(true);
+  const { toast } = useToast();
+
+  useEffect(() => {
+    loadDatabasePath();
+  }, []);
+
+  const loadDatabasePath = async () => {
+    try {
+      setLoading(true);
+      const result = await window.electronAPI.getDatabasePath();
+      if (result.success) {
+        setDbPath(result.path);
+      } else {
+        toast({
+          title: "Error",
+          description: "Failed to get database path",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      console.error('Error loading database path:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load database information",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleOpenFolder = async () => {
+    try {
+      const result = await window.electronAPI.openDatabaseFolder();
+      if (result.success) {
+        toast({
+          title: "Success",
+          description: "Database folder opened in file explorer",
+        });
+      } else {
+        toast({
+          title: "Error",
+          description: "Failed to open database folder",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      console.error('Error opening database folder:', error);
+      toast({
+        title: "Error",
+        description: "Failed to open database folder",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleCopyPath = () => {
+    navigator.clipboard.writeText(dbPath);
+    toast({
+      title: "Copied",
+      description: "Database path copied to clipboard",
+    });
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-8">
+        <RefreshCw className="h-6 w-6 animate-spin" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <Label className="text-base font-semibold">Database Location</Label>
+        <p className="text-sm text-muted-foreground mt-1">
+          The database file is stored at the following location on your system
+        </p>
+      </div>
+
+      <div className="flex gap-2">
+        <Input
+          value={dbPath}
+          readOnly
+          className="font-mono text-sm"
+        />
+        <Button
+          variant="outline"
+          onClick={handleCopyPath}
+          title="Copy path to clipboard"
+        >
+          Copy
+        </Button>
+        <Button
+          onClick={handleOpenFolder}
+          title="Open database folder in file explorer"
+        >
+          Open Folder
+        </Button>
+      </div>
+
+      <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+        <h4 className="font-medium text-blue-900 dark:text-blue-100 mb-2">Important Information</h4>
+        <ul className="text-sm text-blue-800 dark:text-blue-200 space-y-1 list-disc list-inside">
+          <li>This is the location of your gym management database</li>
+          <li>Regular backups of this file are recommended</li>
+          <li>Do not modify or delete this file while the application is running</li>
+          <li>Keep this file secure as it contains sensitive member information</li>
+        </ul>
       </div>
     </div>
   );

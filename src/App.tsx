@@ -15,6 +15,7 @@ import { BodyMeasurements } from "@/pages/BodyMeasurements";
 import { Staff } from "@/pages/Staff";
 import { Receipts } from "@/pages/Receipts";
 import { StaffSalary } from "@/pages/StaffSalary";
+import { TrainerAssignments } from "@/pages/TrainerAssignments";
 import { Expenses } from "@/pages/Expenses";
 import { Reports } from "@/pages/Reports";
 import { Charts } from "@/pages/Charts";
@@ -68,6 +69,7 @@ const AppRoutes = () => (
       <Route path="staff-attendance" element={<StaffAttendancePage />} />
       <Route path="measurements" element={<BodyMeasurements />} />
       <Route path="staff" element={<Staff />} />
+      <Route path="trainer-assignments" element={<TrainerAssignments />} />
       <Route path="salary" element={<StaffSalary />} />
       <Route path="expenses" element={<Expenses />} />
       <Route path="reports" element={<Reports />} />

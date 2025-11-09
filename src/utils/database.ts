@@ -455,7 +455,12 @@ const convertMemberToLegacy = (member: unknown): LegacyMember => {
     // Include due amount fields for consistency
     dueAmount: member.due_amount || 0,
     due_amount: member.due_amount || 0,
-    unpaidInvoices: member.unpaid_invoices || 0
+    unpaidInvoices: member.unpaid_invoices || 0,
+    // Include trainer assignment fields
+    assignedTrainerId: member.assigned_trainer_id || undefined,
+    assigned_trainer_id: member.assigned_trainer_id || undefined,
+    assignedTrainerName: member.assigned_trainer_name || undefined,
+    assigned_trainer_name: member.assigned_trainer_name || undefined
   };
 
   // Debug log for troubleshooting data conversion
@@ -621,6 +626,14 @@ declare global {
       getRolePermissions: (role: string) => Promise<{ success: boolean; data?: any[]; error?: string }>;
       setRolePermission: (role: string, permission: string, enabled: boolean) => Promise<{ success: boolean; error?: string }>;
 
+      // Trainer Assignments
+      getActiveTrainers: () => Promise<{ success: boolean; data?: any[]; error?: string }>;
+      getTrainersWithCounts: () => Promise<{ success: boolean; data?: any[]; error?: string }>;
+      getTrainerWithCount: (trainerId: string) => Promise<{ success: boolean; data?: any; error?: string }>;
+      getMembersByTrainer: (trainerId: string) => Promise<{ success: boolean; data?: any[]; error?: string }>;
+      assignTrainerToMember: (memberId: string, trainerId: string, trainerName: string) => Promise<{ success: boolean; error?: string }>;
+      removeTrainerFromMember: (memberId: string) => Promise<{ success: boolean; error?: string }>;
+
       // Members
       getAllMembers: () => Promise<{ success: boolean; data?: Member[]; error?: string }>;
       getMemberById: (id: string) => Promise<{ success: boolean; data?: Member; error?: string }>;
@@ -773,6 +786,10 @@ declare global {
       restoreDeletedMember: (deletedMemberId: string) => Promise<{ success: boolean; memberId?: string; error?: string }>;
       permanentlyDeleteMember: (deletedMemberId: string) => Promise<{ success: boolean; error?: string }>;
 
+      // System Information
+      getDatabasePath: () => Promise<{ success: boolean; path?: string; error?: string }>;
+      openDatabaseFolder: () => Promise<{ success: boolean; error?: string }>;
+
     };
   }
 }
@@ -863,6 +880,67 @@ class DatabaseService {
       return result.success;
     } catch (error) {
       console.error('Set role permission error:', error);
+      return false;
+    }
+  }
+
+  // Trainer Assignments
+  static async getActiveTrainers(): Promise<any[]> {
+    try {
+      const result = await window.electronAPI.getActiveTrainers();
+      return result.success ? result.data || [] : [];
+    } catch (error) {
+      console.error('Get active trainers error:', error);
+      return [];
+    }
+  }
+
+  static async getTrainersWithCounts(): Promise<any[]> {
+    try {
+      const result = await window.electronAPI.getTrainersWithCounts();
+      return result.success ? result.data || [] : [];
+    } catch (error) {
+      console.error('Get trainers with counts error:', error);
+      return [];
+    }
+  }
+
+  static async getTrainerWithCount(trainerId: string): Promise<any | null> {
+    try {
+      const result = await window.electronAPI.getTrainerWithCount(trainerId);
+      return result.success ? result.data : null;
+    } catch (error) {
+      console.error('Get trainer with count error:', error);
+      return null;
+    }
+  }
+
+  static async getMembersByTrainer(trainerId: string): Promise<any[]> {
+    try {
+      const result = await window.electronAPI.getMembersByTrainer(trainerId);
+      return result.success ? result.data || [] : [];
+    } catch (error) {
+      console.error('Get members by trainer error:', error);
+      return [];
+    }
+  }
+
+  static async assignTrainerToMember(memberId: string, trainerId: string, trainerName: string): Promise<boolean> {
+    try {
+      const result = await window.electronAPI.assignTrainerToMember(memberId, trainerId, trainerName);
+      return result.success;
+    } catch (error) {
+      console.error('Assign trainer to member error:', error);
+      return false;
+    }
+  }
+
+  static async removeTrainerFromMember(memberId: string): Promise<boolean> {
+    try {
+      const result = await window.electronAPI.removeTrainerFromMember(memberId);
+      return result.success;
+    } catch (error) {
+      console.error('Remove trainer from member error:', error);
       return false;
     }
   }
@@ -1954,6 +2032,14 @@ export const db = {
   getRolePermissions: DatabaseService.getRolePermissions,
   setRolePermission: DatabaseService.setRolePermission,
 
+  // Trainer Assignments
+  getActiveTrainers: DatabaseService.getActiveTrainers,
+  getTrainersWithCounts: DatabaseService.getTrainersWithCounts,
+  getTrainerWithCount: DatabaseService.getTrainerWithCount,
+  getMembersByTrainer: DatabaseService.getMembersByTrainer,
+  assignTrainerToMember: DatabaseService.assignTrainerToMember,
+  removeTrainerFromMember: DatabaseService.removeTrainerFromMember,
+
   // Members (with camelCase conversion)
   getAllMembers: async (): Promise<LegacyMember[]> => {
     const members = await DatabaseService.getAllMembers();
@@ -2049,6 +2135,8 @@ export const db = {
       medical_issues: memberData.medicalIssues || null,
       goals: memberData.goals || null,
       status: memberData.status || 'active',
+      assigned_trainer_id: (memberData as any).assignedTrainerId || (memberData as any).assigned_trainer_id || null,
+      assigned_trainer_name: (memberData as any).assignedTrainerName || (memberData as any).assigned_trainer_name || null,
       created_at: new Date().toISOString()
     };
     console.log('Database conversion - converted data:', convertedData);
@@ -2149,6 +2237,20 @@ export const db = {
     if (memberData.medicalIssues !== undefined) convertedData.medical_issues = memberData.medicalIssues || null;
     if (memberData.goals !== undefined) convertedData.goals = memberData.goals || null;
     if (memberData.status !== undefined) convertedData.status = memberData.status;
+    
+    // Handle trainer assignment fields
+    if ((memberData as any).assignedTrainerId !== undefined) {
+      convertedData.assigned_trainer_id = (memberData as any).assignedTrainerId || null;
+    }
+    if ((memberData as any).assigned_trainer_id !== undefined) {
+      convertedData.assigned_trainer_id = (memberData as any).assigned_trainer_id || null;
+    }
+    if ((memberData as any).assignedTrainerName !== undefined) {
+      convertedData.assigned_trainer_name = (memberData as any).assignedTrainerName || null;
+    }
+    if ((memberData as any).assigned_trainer_name !== undefined) {
+      convertedData.assigned_trainer_name = (memberData as any).assigned_trainer_name || null;
+    }
 
     return await DatabaseService.updateMember(id, convertedData);
   },
@@ -3324,7 +3426,7 @@ export const db = {
     }
   },
 
-  masterOccupationsUpdate: async (id: number, occupationData: any) => {
+  masterOccupationsUpdate: async (id: number, occupationData: unknown) => {
     try {
       return await window.electronAPI.masterOccupationsUpdate(id, occupationData);
     } catch (error) {
@@ -3351,7 +3453,7 @@ export const db = {
     }
   },
 
-  masterPaymentTypesCreate: async (paymentData: any) => {
+  masterPaymentTypesCreate: async (paymentData: unknown) => {
     try {
       return await window.electronAPI.masterPaymentTypesCreate(paymentData);
     } catch (error) {
@@ -3360,7 +3462,7 @@ export const db = {
     }
   },
 
-  masterPaymentTypesUpdate: async (id: number, paymentData: any) => {
+  masterPaymentTypesUpdate: async (id: number, paymentData: unknown) => {
     try {
       return await window.electronAPI.masterPaymentTypesUpdate(id, paymentData);
     } catch (error) {

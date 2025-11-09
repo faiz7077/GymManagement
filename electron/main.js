@@ -662,6 +662,67 @@ ipcMain.handle('role-permissions-set', async (event, role, permission, enabled) 
   }
 });
 
+// Trainer Assignments
+ipcMain.handle('trainers-get-active', async () => {
+  try {
+    const trainers = dbService.getActiveTrainers();
+    return { success: true, data: trainers };
+  } catch (error) {
+    console.error('Get active trainers error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('trainers-get-with-counts', async () => {
+  try {
+    const trainers = dbService.getAllTrainersWithMemberCounts();
+    return { success: true, data: trainers };
+  } catch (error) {
+    console.error('Get trainers with counts error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('trainers-get-with-count', async (event, trainerId) => {
+  try {
+    const trainer = dbService.getTrainerWithMemberCount(trainerId);
+    return { success: true, data: trainer };
+  } catch (error) {
+    console.error('Get trainer with count error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('members-get-by-trainer', async (event, trainerId) => {
+  try {
+    const members = dbService.getMembersByTrainer(trainerId);
+    return { success: true, data: members };
+  } catch (error) {
+    console.error('Get members by trainer error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('members-assign-trainer', async (event, memberId, trainerId, trainerName) => {
+  try {
+    const success = dbService.assignTrainerToMember(memberId, trainerId, trainerName);
+    return { success };
+  } catch (error) {
+    console.error('Assign trainer to member error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('members-remove-trainer', async (event, memberId) => {
+  try {
+    const success = dbService.removeTrainerFromMember(memberId);
+    return { success };
+  } catch (error) {
+    console.error('Remove trainer from member error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
 // Members
 ipcMain.handle('members-get-all', async () => {
   try {
@@ -1485,6 +1546,37 @@ ipcMain.handle('recalculate-member-totals', async (event, memberId) => {
     return { success: true, data: result };
   } catch (error) {
     console.error('Error recalculating member totals:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Get database location
+ipcMain.handle('get-database-path', async () => {
+  try {
+    const { app } = require('electron');
+    const path = require('path');
+    const userDataPath = app.getPath('userData');
+    const dbPath = path.join(userDataPath, 'database', 'pratik.db');
+    return { success: true, path: dbPath };
+  } catch (error) {
+    console.error('Error getting database path:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Open database folder in file explorer
+ipcMain.handle('open-database-folder', async () => {
+  try {
+    const { app, shell } = require('electron');
+    const path = require('path');
+    const userDataPath = app.getPath('userData');
+    const dbDir = path.join(userDataPath, 'database');
+    
+    // Open the folder in the system's file explorer
+    await shell.openPath(dbDir);
+    return { success: true };
+  } catch (error) {
+    console.error('Error opening database folder:', error);
     return { success: false, error: error.message };
   }
 });

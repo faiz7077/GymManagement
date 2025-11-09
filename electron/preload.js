@@ -38,6 +38,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getRolePermissions: (role) => ipcRenderer.invoke('role-permissions-get-by-role', role),
   setRolePermission: (role, permission, enabled) => ipcRenderer.invoke('role-permissions-set', role, permission, enabled),
   
+  // Trainer Assignments
+  getActiveTrainers: () => ipcRenderer.invoke('trainers-get-active'),
+  getTrainersWithCounts: () => ipcRenderer.invoke('trainers-get-with-counts'),
+  getTrainerWithCount: (trainerId) => ipcRenderer.invoke('trainers-get-with-count', trainerId),
+  getMembersByTrainer: (trainerId) => ipcRenderer.invoke('members-get-by-trainer', trainerId),
+  assignTrainerToMember: (memberId, trainerId, trainerName) => ipcRenderer.invoke('members-assign-trainer', memberId, trainerId, trainerName),
+  removeTrainerFromMember: (memberId) => ipcRenderer.invoke('members-remove-trainer', memberId),
+  
   // Members
   getAllMembers: () => ipcRenderer.invoke('members-get-all'),
   getAllMembersWithDueAmounts: () => ipcRenderer.invoke('get-all-members-with-due-amounts'),
@@ -216,7 +224,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   masterBodyMeasurementFieldsGetAll: () => ipcRenderer.invoke('master-body-measurement-fields-get-all'),
   masterBodyMeasurementFieldsCreate: (fieldData) => ipcRenderer.invoke('master-body-measurement-fields-create', fieldData),
   masterBodyMeasurementFieldsUpdate: (id, fieldData) => ipcRenderer.invoke('master-body-measurement-fields-update', id, fieldData),
-  masterBodyMeasurementFieldsDelete: (id) => ipcRenderer.invoke('master-body-measurement-fields-delete', id)
+  masterBodyMeasurementFieldsDelete: (id) => ipcRenderer.invoke('master-body-measurement-fields-delete', id),
+  
+  // System Information
+  getDatabasePath: () => ipcRenderer.invoke('get-database-path'),
+  openDatabaseFolder: () => ipcRenderer.invoke('open-database-folder')
 });
 
 // Remove the loading text when the page is ready
