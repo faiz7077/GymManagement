@@ -19,7 +19,7 @@ class DatabaseService {
         fs.mkdirSync(dbDir, { recursive: true });
       }
 
-      const dbPath = path.join(dbDir, 'faizanGym.db');
+      const dbPath = path.join(dbDir, 'pratik.db');
       console.log('Database path:', dbPath);
 
       this.db = new Database(dbPath);

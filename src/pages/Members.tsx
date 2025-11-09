@@ -359,9 +359,19 @@ export const Members: React.FC = () => {
 
       const success = await db.updateMember(selectedMember.id, memberData);
       if (success) {
-        // If payment details changed, create a receipt for the update
-        if (paymentFieldsChanged) {
-          console.log('💰 Creating receipt for payment update...');
+        // Only create receipt if there's an actual NEW payment being made
+        // For partial member completion: only if paid amount > 0 and no previous payment
+        // For regular updates: only if paid amount has actually increased
+        const hasNewPayment = (memberData.paidAmount || 0) > (selectedMember.paidAmount || 0);
+        const shouldCreateReceipt = paymentFieldsChanged && hasNewPayment;
+
+        if (shouldCreateReceipt) {
+          console.log('💰 Creating receipt for NEW payment...');
+          console.log('💰 Payment increase:', {
+            old: selectedMember.paidAmount || 0,
+            new: memberData.paidAmount || 0,
+            increase: (memberData.paidAmount || 0) - (selectedMember.paidAmount || 0)
+          });
 
           try {
             // Use the createMembershipReceipt method with 'update' type
@@ -399,13 +409,15 @@ export const Members: React.FC = () => {
             console.error('❌ Error creating member update receipt:', receiptError);
             // Don't fail the member update if receipt creation fails
           }
+        } else {
+          console.log('ℹ️ Skipping receipt creation - no payment change or amount is 0');
         }
 
         await loadMembers();
         setIsEditDialogOpen(false);
         setSelectedMember(null);
 
-        const receiptMessage = paymentFieldsChanged ? ' A receipt has been generated for the payment changes.' : '';
+        const receiptMessage = shouldCreateReceipt ? ' A receipt has been generated for the payment changes.' : '';
         const updateMessage = isPartialMemberCompletion 
           ? `${memberData.name}'s membership has been completed successfully.${receiptMessage}`
           : `${memberData.name} has been updated successfully.${receiptMessage}`;
@@ -870,7 +882,7 @@ export const Members: React.FC = () => {
 
       {/* Add Member Dialog */}
       <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
-        <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-6xl max-h-[95vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Add New Member</DialogTitle>
           </DialogHeader>
@@ -884,7 +896,7 @@ export const Members: React.FC = () => {
 
       {/* Edit Dialog */}
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-        <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-6xl max-h-[95vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Edit Member</DialogTitle>
           </DialogHeader>

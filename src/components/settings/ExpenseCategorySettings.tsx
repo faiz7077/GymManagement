@@ -129,6 +129,9 @@ export const ExpenseCategorySettings: React.FC = () => {
         setEditingCategory(null);
         setIsDialogOpen(false);
         await loadCategories();
+        
+        // Dispatch event to notify other components
+        window.dispatchEvent(new CustomEvent('expenseCategoryUpdated'));
       } else {
         throw new Error(result.error || 'Failed to save expense category');
       }
@@ -167,6 +170,9 @@ export const ExpenseCategorySettings: React.FC = () => {
           description: `Category ${!category.is_active ? 'activated' : 'deactivated'} successfully`,
         });
         await loadCategories();
+        
+        // Dispatch event to notify other components
+        window.dispatchEvent(new CustomEvent('expenseCategoryUpdated'));
       } else {
         throw new Error(result.error || 'Failed to update category status');
       }

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Search, CreditCard, User, Phone, IndianRupee, Receipt, CheckCircle } from 'lucide-react';
+import { Search, CreditCard, User, Phone, IndianRupee, Receipt, CheckCircle, MessageSquare } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -70,7 +70,7 @@ export const DuePaymentForm: React.FC = () => {
 
     setSearching(true);
     try {
-      const result = await db.findMemberByMobile(searchTerm.trim()) as any;
+      const result = await db.findMemberByMobile(searchTerm.trim()) as unknown;
       
       if (result.success && result.member) {
         setSelectedMember(result.member);
@@ -267,6 +267,52 @@ export const DuePaymentForm: React.FC = () => {
                 <p className="text-lg font-bold text-red-600">₹{selectedMember.current_due_amount}</p>
               </div>
             </div>
+            
+            {selectedMember.current_due_amount > 0 && (
+              <div className="flex justify-center">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={async () => {
+                    try {
+                      // Load due amount template from WhatsApp settings
+                      const gymName = await db.getSetting('gym_name') || 'Prime Fitness Health Point';
+                      const template = await db.getWhatsAppTemplate('due_amount_reminder') || 
+                        'Hi {member_name}, your outstanding balance is ₹{due_amount}. Please clear it at your convenience to avoid service interruption. Thanks! 🙏';
+                      
+                      // Replace placeholders with actual data
+                      const message = template
+                        .replace(/{member_name}/g, selectedMember.name)
+                        .replace(/{due_amount}/g, selectedMember.current_due_amount.toFixed(2))
+                        .replace(/{gym_name}/g, gymName)
+                        .replace(/{member_phone}/g, selectedMember.mobile_no || '')
+                        .replace(/{member_id}/g, selectedMember.custom_member_id || '');
+
+                      // Open WhatsApp with pre-filled message
+                      const phone = selectedMember.mobile_no.replace(/\D/g, '');
+                      const whatsappUrl = `https://wa.me/91${phone}?text=${encodeURIComponent(message)}`;
+                      window.open(whatsappUrl, '_blank');
+                      
+                      toast({
+                        title: "WhatsApp Opened",
+                        description: `Opening WhatsApp chat with ${selectedMember.name}`,
+                      });
+                    } catch (error) {
+                      console.error('Error opening WhatsApp:', error);
+                      toast({
+                        title: "Error",
+                        description: "Failed to open WhatsApp.",
+                        variant: "destructive",
+                      });
+                    }
+                  }}
+                  className="flex items-center gap-2"
+                >
+                  <MessageSquare className="h-4 w-4" />
+                  Send Due Reminder via WhatsApp
+                </Button>
+              </div>
+            )}
           </CardContent>
         </Card>
       )}

@@ -5,6 +5,7 @@ interface AuthContextType {
   user: User | null;
   login: (username: string, password: string) => Promise<boolean>;
   logout: () => void;
+  refreshUser: () => Promise<void>;
   isAuthenticated: boolean;
   hasPermission: (permission: string) => boolean;
 }
@@ -48,19 +49,38 @@ const PERMISSIONS = {
 
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
+  const [rolePermissions, setRolePermissions] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     // Check for existing session in sessionStorage (more secure than localStorage for auth)
     const currentUser = sessionStorage.getItem('gym_current_user');
     if (currentUser) {
       try {
-        setUser(JSON.parse(currentUser));
+        const parsedUser = JSON.parse(currentUser);
+        setUser(parsedUser);
+        // Load role permissions if not admin
+        if (parsedUser.role !== 'admin') {
+          loadRolePermissions(parsedUser.role);
+        }
       } catch (error) {
         console.error('Error parsing stored user data:', error);
         sessionStorage.removeItem('gym_current_user');
       }
     }
   }, []);
+
+  const loadRolePermissions = async (role: string) => {
+    try {
+      const permissions = await db.getRolePermissions(role);
+      const permMap: Record<string, boolean> = {};
+      permissions.forEach((perm: { permission: string; enabled: number }) => {
+        permMap[perm.permission] = perm.enabled === 1;
+      });
+      setRolePermissions(permMap);
+    } catch (error) {
+      console.error('Error loading role permissions:', error);
+    }
+  };
 
   const login = async (username: string, password: string): Promise<boolean> => {
     try {
@@ -69,6 +89,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (foundUser) {
         setUser(foundUser);
         sessionStorage.setItem('gym_current_user', JSON.stringify(foundUser));
+        // Load role permissions if not admin
+        if (foundUser.role !== 'admin') {
+          await loadRolePermissions(foundUser.role);
+        }
         return true;
       }
       return false;
@@ -83,8 +107,37 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     sessionStorage.removeItem('gym_current_user');
   };
 
+  const refreshUser = async (): Promise<void> => {
+    if (!user) return;
+    
+    try {
+      // Fetch updated user data from database
+      const users = await db.getAllUsers();
+      const updatedUser = users.find(u => u.id === user.id);
+      
+      if (updatedUser) {
+        setUser(updatedUser);
+        sessionStorage.setItem('gym_current_user', JSON.stringify(updatedUser));
+      }
+    } catch (error) {
+      console.error('Error refreshing user data:', error);
+    }
+  };
+
   const hasPermission = (permission: string): boolean => {
     if (!user) return false;
+    
+    // Admin always has all permissions
+    if (user.role === 'admin') {
+      return true;
+    }
+    
+    // For other roles, check database permissions
+    if (rolePermissions[permission] !== undefined) {
+      return rolePermissions[permission];
+    }
+    
+    // Fallback to default permissions if not in database
     const allowedRoles = PERMISSIONS[permission as keyof typeof PERMISSIONS];
     return allowedRoles ? allowedRoles.includes(user.role) : false;
   };
@@ -96,6 +149,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       user,
       login,
       logout,
+      refreshUser,
       isAuthenticated,
       hasPermission
     }}>

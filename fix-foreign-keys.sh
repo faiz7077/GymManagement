@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Fix Foreign Key References to members_old
-DB_PATH=~/Library/Application\ Support/fit-local-control/database/faizanGym.db
+DB_PATH=~/Library/Application\ Support/fit-local-control/database/pratik.db
 
 echo "🔧 Fixing Foreign Key References"
 echo "📁 Database: $DB_PATH"

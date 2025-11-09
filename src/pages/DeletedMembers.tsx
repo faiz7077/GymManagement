@@ -193,7 +193,7 @@ export const DeletedMembers: React.FC = () => {
 
   return (
     <div className="animate-fade-in w-full overflow-hidden h-full flex flex-col">
-      <div className="sticky top-0 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b px-6 py-4 w-full overflow-hidden flex-shrink-0">
+      <div className="sticky top-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b px-6 py-4 w-full overflow-hidden flex-shrink-0">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
             {sidebarState === 'collapsed' && <SidebarTrigger />}

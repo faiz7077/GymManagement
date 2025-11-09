@@ -54,7 +54,7 @@ const sidebarItems: SidebarItem[] = [
   { title: "Staff", url: "/staff", icon: UserPlus, permission: "MANAGE_STAFF" },
   { title: "Staff Attendance", url: "/staff-attendance", icon: UserCheck, permission: "VIEW_ATTENDANCE" },
   { title: "Expenses", url: "/expenses", icon: DollarSign, permission: "MANAGE_EXPENSES" },
-  { title: "Staff Salary", url: "/salary", icon: TrendingUp },
+  { title: "Staff Salary", url: "/salary", icon: TrendingUp, permission: "MANAGE_SALARIES" },
   { title: "Monthly Report", url: "/monthly-report", icon: FileText, permission: "VIEW_REPORTS" },
   { title: "WhatsApp Automation", url: "/whatsapp", icon: MessageSquare, permission: "VIEW_REPORTS" },
   { title: "WhatsApp Settings", url: "/whatsapp-settings", icon: Settings, permission: "MANAGE_SETTINGS" },

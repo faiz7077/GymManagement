@@ -110,6 +110,7 @@ export const MemberForm: React.FC<MemberFormProps> = ({ initialData, enquiryData
   }>({ totalPaid: 0, totalDue: 0, receiptCount: 0 });
   const [occupations, setOccupations] = useState<unknown[]>([]);
   const [packages, setPackages] = useState<unknown[]>([]);
+  const [selectedPackageId, setSelectedPackageId] = useState<string | null>(null);
   const [paymentTypes, setPaymentTypes] = useState<unknown[]>([]);
   const [masterDataLoaded, setMasterDataLoaded] = useState(false);
   const [isSavingPartial, setIsSavingPartial] = useState(false);
@@ -380,14 +381,12 @@ export const MemberForm: React.FC<MemberFormProps> = ({ initialData, enquiryData
 
   // Auto-populate package fee when plan type changes (if packages are available)
   useEffect(() => {
-    if (planType && packages.length > 0) {
-      console.log('Plan type changed:', planType, 'Available packages:', packages);
+    if (selectedPackageId && packages.length > 0) {
+      console.log('Selected package ID:', selectedPackageId, 'Available packages:', packages);
 
-      // Find the selected package in master packages
-      // Match by ID first (most reliable), then by name, but NOT by duration_type to avoid conflicts with custom packages
+      // Find the selected package by ID
       const selectedPackage = packages.find(pkg =>
-        pkg.id?.toString() === planType ||
-        pkg.name?.toLowerCase() === planType.toLowerCase()
+        pkg.id?.toString() === selectedPackageId
       );
 
       console.log('Found selected package:', selectedPackage);
@@ -414,13 +413,13 @@ export const MemberForm: React.FC<MemberFormProps> = ({ initialData, enquiryData
         // Show success message
         toast({
           title: "Plan Mapped",
-          description: `Package fees have been automatically mapped from ${selectedPackage.name || planType} plan settings.`,
+          description: `Package fees have been automatically mapped from ${selectedPackage.name || 'selected'} plan.`,
         });
       } else {
-        console.log('No matching package found in master settings for:', planType);
+        console.log('No matching package found for ID:', selectedPackageId);
       }
     }
-  }, [planType, packages, setValue, toast]);
+  }, [selectedPackageId, packages, setValue, toast]);
 
 
 
@@ -1471,8 +1470,31 @@ export const MemberForm: React.FC<MemberFormProps> = ({ initialData, enquiryData
           <div className="space-y-2">
             <Label>Plan Type *</Label>
             <Select
-              onValueChange={(value) => setValue('planType', value as 'monthly' | 'quarterly' | 'half_yearly' | 'yearly')}
-              value={watch('planType') || undefined}
+              onValueChange={(value) => {
+                // If packages are loaded, find the selected package and use its duration_type
+                if (packages.length > 0) {
+                  const selectedPackage = packages.find(pkg => pkg.id?.toString() === value || pkg.name === value);
+                  if (selectedPackage) {
+                    setSelectedPackageId(value); // Store the package ID for display
+                    if (selectedPackage.duration_type) {
+                      setValue('planType', selectedPackage.duration_type as 'monthly' | 'quarterly' | 'half_yearly' | 'yearly' | 'custom');
+                    } else {
+                      // Package exists but duration_type is missing - show error
+                      toast({
+                        title: "Package Configuration Error",
+                        description: `The package "${selectedPackage.name}" is missing duration_type. Please update it in Master Settings → Packages.`,
+                        variant: "destructive",
+                      });
+                      console.error('Package missing duration_type:', selectedPackage);
+                    }
+                  }
+                } else {
+                  // Fallback for hardcoded values
+                  setSelectedPackageId(null);
+                  setValue('planType', value as 'monthly' | 'quarterly' | 'half_yearly' | 'yearly');
+                }
+              }}
+              value={packages.length > 0 ? (selectedPackageId || undefined) : (watch('planType') || undefined)}
               disabled={!masterDataLoaded}
             >
               <SelectTrigger>
@@ -1526,9 +1548,17 @@ export const MemberForm: React.FC<MemberFormProps> = ({ initialData, enquiryData
 
             {/* Show master packages info */}
             {packages.length > 0 && (
-              <div className="text-xs text-blue-600 bg-blue-50 p-2 rounded border border-blue-200">
-                💡 Plans loaded from Master Settings ({packages.length} available). Selecting a plan will automatically map fees.
-              </div>
+              <>
+                <div className="text-xs text-blue-600 bg-blue-50 p-2 rounded border border-blue-200">
+                  💡 Plans loaded from Master Settings ({packages.length} available). Selecting a plan will automatically map fees.
+                </div>
+                {/* Warning for packages missing duration_type */}
+                {packages.some(pkg => !pkg.duration_type) && (
+                  <div className="text-xs text-red-600 bg-red-50 p-2 rounded border border-red-200">
+                    ⚠️ Some packages are missing duration_type. Please update them in Master Settings → Packages to use them here.
+                  </div>
+                )}
+              </>
             )}
 
             {/* Show fallback info */}
@@ -1539,9 +1569,9 @@ export const MemberForm: React.FC<MemberFormProps> = ({ initialData, enquiryData
             )}
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="registrationFee">Registration Fee *</Label>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+            <div className="space-y-1">
+              <Label htmlFor="registrationFee" className="text-sm">Registration Fee *</Label>
               <Input
                 id="registrationFee"
                 type="number"
@@ -1549,14 +1579,15 @@ export const MemberForm: React.FC<MemberFormProps> = ({ initialData, enquiryData
                 step="0.01"
                 {...register('registrationFee', { valueAsNumber: true })}
                 placeholder="Enter registration fee"
+                className="h-9"
               />
               {errors.registrationFee && (
-                <p className="text-sm text-destructive">{errors.registrationFee.message}</p>
+                <p className="text-xs text-destructive">{errors.registrationFee.message}</p>
               )}
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="packageFee">Package Fee *</Label>
+            <div className="space-y-1">
+              <Label htmlFor="packageFee" className="text-sm">Package Fee *</Label>
               <Input
                 id="packageFee"
                 type="number"
@@ -1564,14 +1595,15 @@ export const MemberForm: React.FC<MemberFormProps> = ({ initialData, enquiryData
                 step="0.01"
                 {...register('packageFee', { valueAsNumber: true })}
                 placeholder="Enter package fee"
+                className="h-9"
               />
               {errors.packageFee && (
-                <p className="text-sm text-destructive">{errors.packageFee.message}</p>
+                <p className="text-xs text-destructive">{errors.packageFee.message}</p>
               )}
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="discount">Discount Money</Label>
+            <div className="space-y-1">
+              <Label htmlFor="discount" className="text-sm">Discount Money</Label>
               <Input
                 id="discount"
                 type="number"
@@ -1579,18 +1611,16 @@ export const MemberForm: React.FC<MemberFormProps> = ({ initialData, enquiryData
                 step="0.01"
                 {...register('discount', { valueAsNumber: true })}
                 placeholder="Enter discount"
+                className="h-9"
               />
               {errors.discount && (
-                <p className="text-sm text-destructive">{errors.discount.message}</p>
+                <p className="text-xs text-destructive">{errors.discount.message}</p>
               )}
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="membershipFees">
+            <div className="space-y-1">
+              <Label htmlFor="membershipFees" className="text-sm">
                 Total Fees *
-                <span className="text-xs text-muted-foreground ml-2">
-                  (Auto-calculated: Registration + Package - Discount)
-                </span>
               </Label>
               <Input
                 id="membershipFees"
@@ -1598,12 +1628,12 @@ export const MemberForm: React.FC<MemberFormProps> = ({ initialData, enquiryData
                 min="0"
                 step="0.01"
                 {...register('membershipFees', { valueAsNumber: true })}
-                placeholder="Auto-calculated from above fees"
-                className="bg-muted"
+                placeholder="Auto-calculated"
+                className="bg-muted h-9"
                 readOnly
               />
               {errors.membershipFees && (
-                <p className="text-sm text-destructive">{errors.membershipFees.message}</p>
+                <p className="text-xs text-destructive">{errors.membershipFees.message}</p>
               )}
             </div>
           </div>

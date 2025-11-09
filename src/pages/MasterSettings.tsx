@@ -29,22 +29,26 @@ export const MasterSettings: React.FC = () => {
   }
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="animate-fade-in">
       {/* Header */}
-      <div className="flex items-center gap-3">
-        {sidebarState === 'collapsed' && <SidebarTrigger />}
-        <div>
-          <h1 className="text-3xl font-bold bg-gradient-to-r from-gym-primary to-primary-glow bg-clip-text text-transparent">
-            Master Settings
-          </h1>
-          <p className="text-muted-foreground">
-            Manage master data configurations and standard options
-          </p>
+      <div className="sticky top-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b px-6 py-4">
+        <div className="flex items-center gap-3">
+          {sidebarState === 'collapsed' && <SidebarTrigger />}
+          <div>
+            <h1 className="text-3xl font-bold bg-gradient-to-r from-gym-primary to-primary-glow bg-clip-text text-transparent">
+              Master Settings
+            </h1>
+            <p className="text-muted-foreground">
+              Manage master data configurations and standard options
+            </p>
+          </div>
         </div>
       </div>
 
-      {/* Master Settings Component */}
-      <MasterSettingsComponent />
+      <div className="p-6">
+        {/* Master Settings Component */}
+        <MasterSettingsComponent />
+      </div>
     </div>
   );
 };

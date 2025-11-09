@@ -4,7 +4,7 @@ import { format } from 'date-fns';
 // Lucide React Icons
 import {
   Receipt as ReceiptIcon, Search, Eye, Calendar, Filter, RefreshCw, Download,
-  ChevronLeft, ChevronRight, User, DollarSign, CreditCard, X
+  ChevronLeft, ChevronRight, User, DollarSign, CreditCard, X, MessageSquare
 } from 'lucide-react';
 
 // UI Components
@@ -411,16 +411,97 @@ export const ReceiptHistory: React.FC<ReceiptHistoryProps> = ({ isOpen, onClose 
                             </div>
                           </TableCell>
                           <TableCell>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => {
-                                setSelectedReceipt(receipt);
-                                setIsViewDialogOpen(true);
-                              }}
-                            >
-                              <Eye className="h-4 w-4" />
-                            </Button>
+                            <div className="flex items-center gap-1">
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => {
+                                  setSelectedReceipt(receipt);
+                                  setIsViewDialogOpen(true);
+                                }}
+                                title="View Details"
+                              >
+                                <Eye className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={async () => {
+                                  try {
+                                    const { ReceiptPDFGenerator } = await import('@/utils/pdfUtils');
+                                    await ReceiptPDFGenerator.downloadReceiptPDF(receipt);
+                                    toast({
+                                      title: "PDF Downloaded",
+                                      description: `Receipt ${receipt.receipt_number} downloaded successfully.`,
+                                    });
+                                  } catch (error) {
+                                    console.error('Error downloading receipt:', error);
+                                    toast({
+                                      title: "Download Failed",
+                                      description: "Failed to download receipt PDF.",
+                                      variant: "destructive",
+                                    });
+                                  }
+                                }}
+                                title="Download PDF"
+                              >
+                                <Download className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={async () => {
+                                  if (!receipt.mobile_no) {
+                                    toast({
+                                      title: "No Phone Number",
+                                      description: "This receipt doesn't have a phone number associated.",
+                                      variant: "destructive",
+                                    });
+                                    return;
+                                  }
+                                  
+                                  try {
+                                    // Load receipt template from settings
+                                    const gymName = await db.getSetting('gym_name') || 'Prime Fitness Health Point';
+                                    const template = await db.getSetting('whatsapp_receipt_template') || 
+                                      'Hi {member_name}, we\'ve received ₹{amount_paid}. Receipt #{receipt_number} is attached. Thank you for choosing {gym_name}! 🎉';
+                                    
+                                    // Replace placeholders with actual data
+                                    const message = template
+                                      .replace(/{member_name}/g, receipt.member_name)
+                                      .replace(/{amount_paid}/g, (receipt.amount_paid || receipt.amount).toFixed(2))
+                                      .replace(/{receipt_number}/g, receipt.receipt_number)
+                                      .replace(/{gym_name}/g, gymName)
+                                      .replace(/{member_phone}/g, receipt.mobile_no || '')
+                                      .replace(/{member_id}/g, receipt.custom_member_id || '')
+                                      .replace(/{due_amount}/g, (receipt.due_amount || 0).toFixed(2))
+                                      .replace(/{start_date}/g, receipt.subscription_start_date || '')
+                                      .replace(/{end_date}/g, receipt.subscription_end_date || '')
+                                      .replace(/{plan_type}/g, receipt.plan_type || '');
+
+                                    // Open WhatsApp with pre-filled message
+                                    const phone = receipt.mobile_no.replace(/\D/g, '');
+                                    const whatsappUrl = `https://wa.me/91${phone}?text=${encodeURIComponent(message)}`;
+                                    window.open(whatsappUrl, '_blank');
+                                    
+                                    toast({
+                                      title: "WhatsApp Opened",
+                                      description: `Opening WhatsApp chat with ${receipt.member_name}`,
+                                    });
+                                  } catch (error) {
+                                    console.error('Error opening WhatsApp:', error);
+                                    toast({
+                                      title: "Error",
+                                      description: "Failed to open WhatsApp.",
+                                      variant: "destructive",
+                                    });
+                                  }
+                                }}
+                                title="Send via WhatsApp"
+                              >
+                                <MessageSquare className="h-4 w-4" />
+                              </Button>
+                            </div>
                           </TableCell>
                         </TableRow>
                       ))}
@@ -527,7 +608,91 @@ export const ReceiptHistory: React.FC<ReceiptHistoryProps> = ({ isOpen, onClose 
       <Dialog open={isViewDialogOpen} onOpenChange={setIsViewDialogOpen}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Receipt Details</DialogTitle>
+            <DialogTitle className="flex items-center justify-between">
+              <span>Receipt Details</span>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={async () => {
+                    if (!selectedReceipt) return;
+                    try {
+                      const { ReceiptPDFGenerator } = await import('@/utils/pdfUtils');
+                      await ReceiptPDFGenerator.downloadReceiptPDF(selectedReceipt);
+                      toast({
+                        title: "PDF Downloaded",
+                        description: `Receipt ${selectedReceipt.receipt_number} downloaded successfully.`,
+                      });
+                    } catch (error) {
+                      console.error('Error downloading receipt:', error);
+                      toast({
+                        title: "Download Failed",
+                        description: "Failed to download receipt PDF.",
+                        variant: "destructive",
+                      });
+                    }
+                  }}
+                >
+                  <Download className="h-4 w-4 mr-2" />
+                  Download PDF
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={async () => {
+                    if (!selectedReceipt) return;
+                    if (!selectedReceipt.mobile_no) {
+                      toast({
+                        title: "No Phone Number",
+                        description: "This receipt doesn't have a phone number associated.",
+                        variant: "destructive",
+                      });
+                      return;
+                    }
+                    
+                    try {
+                      // Load receipt template from settings
+                      const gymName = await db.getSetting('gym_name') || 'Prime Fitness Health Point';
+                      const template = await db.getSetting('whatsapp_receipt_template') || 
+                        'Hi {member_name}, we\'ve received ₹{amount_paid}. Receipt #{receipt_number} is attached. Thank you for choosing {gym_name}! 🎉';
+                      
+                      // Replace placeholders with actual data
+                      const message = template
+                        .replace(/{member_name}/g, selectedReceipt.member_name)
+                        .replace(/{amount_paid}/g, (selectedReceipt.amount_paid || selectedReceipt.amount).toFixed(2))
+                        .replace(/{receipt_number}/g, selectedReceipt.receipt_number)
+                        .replace(/{gym_name}/g, gymName)
+                        .replace(/{member_phone}/g, selectedReceipt.mobile_no || '')
+                        .replace(/{member_id}/g, selectedReceipt.custom_member_id || '')
+                        .replace(/{due_amount}/g, (selectedReceipt.due_amount || 0).toFixed(2))
+                        .replace(/{start_date}/g, selectedReceipt.subscription_start_date || '')
+                        .replace(/{end_date}/g, selectedReceipt.subscription_end_date || '')
+                        .replace(/{plan_type}/g, selectedReceipt.plan_type || '');
+
+                      // Open WhatsApp with pre-filled message
+                      const phone = selectedReceipt.mobile_no.replace(/\D/g, '');
+                      const whatsappUrl = `https://wa.me/91${phone}?text=${encodeURIComponent(message)}`;
+                      window.open(whatsappUrl, '_blank');
+                      
+                      toast({
+                        title: "WhatsApp Opened",
+                        description: `Opening WhatsApp chat with ${selectedReceipt.member_name}`,
+                      });
+                    } catch (error) {
+                      console.error('Error opening WhatsApp:', error);
+                      toast({
+                        title: "Error",
+                        description: "Failed to open WhatsApp.",
+                        variant: "destructive",
+                      });
+                    }
+                  }}
+                >
+                  <MessageSquare className="h-4 w-4 mr-2" />
+                  Send via WhatsApp
+                </Button>
+              </div>
+            </DialogTitle>
           </DialogHeader>
           {selectedReceipt && (
             <div className="space-y-4">

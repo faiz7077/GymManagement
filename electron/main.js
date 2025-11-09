@@ -611,12 +611,53 @@ ipcMain.handle('users-create', async (event, userData) => {
   }
 });
 
+ipcMain.handle('users-update', async (event, userId, userData) => {
+  try {
+    const success = dbService.updateUser(userId, userData);
+    return { success, error: success ? null : 'Failed to update user' };
+  } catch (error) {
+    console.error('Update user error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
 ipcMain.handle('users-update-password', async (event, userId, newPassword) => {
   try {
     const success = dbService.updateUserPassword(userId, newPassword);
     return { success };
   } catch (error) {
     console.error('Update user password error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Role Permissions
+ipcMain.handle('role-permissions-get-all', async () => {
+  try {
+    const permissions = dbService.getAllRolePermissions();
+    return { success: true, data: permissions };
+  } catch (error) {
+    console.error('Get all role permissions error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('role-permissions-get-by-role', async (event, role) => {
+  try {
+    const permissions = dbService.getRolePermissions(role);
+    return { success: true, data: permissions };
+  } catch (error) {
+    console.error('Get role permissions error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('role-permissions-set', async (event, role, permission, enabled) => {
+  try {
+    const success = dbService.setRolePermission(role, permission, enabled);
+    return { success };
+  } catch (error) {
+    console.error('Set role permission error:', error);
     return { success: false, error: error.message };
   }
 });
@@ -1743,6 +1784,16 @@ ipcMain.handle('settings-set', async (event, key, value) => {
   } catch (error) {
     console.error('Set setting error:', error);
     return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('whatsapp-get-template', async (event, messageType) => {
+  try {
+    const template = dbService.getWhatsAppTemplate(messageType);
+    return { success: true, template };
+  } catch (error) {
+    console.error('Get WhatsApp template error:', error);
+    return { success: false, error: error.message, template: null };
   }
 });
 

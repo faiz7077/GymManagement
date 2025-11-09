@@ -282,22 +282,25 @@ export const Charts: React.FC = () => {
     );
   };  
   return (
-    <div className="p-6 space-y-6">
+    <div className="animate-fade-in">
       {/* Header */}
-      <div className="flex items-center gap-3">
-        {sidebarState === 'collapsed' && <SidebarTrigger />}
-        <div>
-          <h1 className="text-3xl font-bold bg-gradient-to-r from-gym-primary to-primary-glow bg-clip-text text-transparent">
-            Charts & Analytics
-          </h1>
-          <p className="text-muted-foreground">
-            Interactive charts and visual insights for your gym data
-          </p>
+      <div className="sticky top-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b px-6 py-4">
+        <div className="flex items-center gap-3">
+          {sidebarState === 'collapsed' && <SidebarTrigger />}
+          <div>
+            <h1 className="text-3xl font-bold bg-gradient-to-r from-gym-primary to-primary-glow bg-clip-text text-transparent">
+              Charts & Analytics
+            </h1>
+            <p className="text-muted-foreground">
+              Interactive charts and visual insights for your gym data
+            </p>
+          </div>
         </div>
       </div>
 
-      {/* Performance Settings */}
-      <Card>
+      <div className="p-6 space-y-6">
+        {/* Performance Settings */}
+        <Card>
         <CardHeader>
           <CardTitle className="flex items-center space-x-2">
             <Settings className="h-5 w-5" />
@@ -833,6 +836,7 @@ export const Charts: React.FC = () => {
           </div>
         </DialogContent>
       </Dialog>
+      </div>
     </div>
   );
 };

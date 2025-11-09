@@ -613,7 +613,13 @@ declare global {
       // Users
       getAllUsers: () => Promise<{ success: boolean; data?: User[]; error?: string }>;
       createUser: (userData: Omit<User, 'id' | 'created_at'> & { id: string; created_at: string }) => Promise<{ success: boolean; error?: string }>;
+      updateUser: (userId: string, userData: Partial<Pick<User, 'name' | 'email' | 'phone' | 'password'>>) => Promise<{ success: boolean; error?: string }>;
       updateUserPassword: (userId: string, newPassword: string) => Promise<{ success: boolean; error?: string }>;
+
+      // Role Permissions
+      getAllRolePermissions: () => Promise<{ success: boolean; data?: any[]; error?: string }>;
+      getRolePermissions: (role: string) => Promise<{ success: boolean; data?: any[]; error?: string }>;
+      setRolePermission: (role: string, permission: string, enabled: boolean) => Promise<{ success: boolean; error?: string }>;
 
       // Members
       getAllMembers: () => Promise<{ success: boolean; data?: Member[]; error?: string }>;
@@ -810,12 +816,53 @@ class DatabaseService {
     }
   }
 
+  static async updateUser(userId: string, userData: Partial<Pick<User, 'name' | 'email' | 'phone' | 'password'>>): Promise<boolean> {
+    try {
+      const result = await window.electronAPI.updateUser(userId, userData);
+      return result.success;
+    } catch (error) {
+      console.error('Update user error:', error);
+      return false;
+    }
+  }
+
   static async updateUserPassword(userId: string, newPassword: string): Promise<boolean> {
     try {
       const result = await window.electronAPI.updateUserPassword(userId, newPassword);
       return result.success;
     } catch (error) {
       console.error('Update user password error:', error);
+      return false;
+    }
+  }
+
+  // Role Permissions
+  static async getAllRolePermissions(): Promise<any[]> {
+    try {
+      const result = await window.electronAPI.getAllRolePermissions();
+      return result.success ? result.data || [] : [];
+    } catch (error) {
+      console.error('Get all role permissions error:', error);
+      return [];
+    }
+  }
+
+  static async getRolePermissions(role: string): Promise<any[]> {
+    try {
+      const result = await window.electronAPI.getRolePermissions(role);
+      return result.success ? result.data || [] : [];
+    } catch (error) {
+      console.error('Get role permissions error:', error);
+      return [];
+    }
+  }
+
+  static async setRolePermission(role: string, permission: string, enabled: boolean): Promise<boolean> {
+    try {
+      const result = await window.electronAPI.setRolePermission(role, permission, enabled);
+      return result.success;
+    } catch (error) {
+      console.error('Set role permission error:', error);
       return false;
     }
   }
@@ -1629,6 +1676,16 @@ class DatabaseService {
     }
   }
 
+  static async getWhatsAppTemplate(messageType: string): Promise<string | null> {
+    try {
+      const result = await window.electronAPI.getWhatsAppTemplate(messageType);
+      return result.success ? result.template : null;
+    } catch (error) {
+      console.error('Error getting WhatsApp template:', error);
+      return null;
+    }
+  }
+
   static async updateWhatsAppTemplate(messageType: string, templateContent: string): Promise<{ success: boolean; error?: string }> {
     try {
       const result = await window.electronAPI.updateWhatsAppTemplate(messageType, templateContent);
@@ -1889,7 +1946,13 @@ export const db = {
   // Users
   getAllUsers: DatabaseService.getAllUsers,
   createUser: DatabaseService.createUser,
+  updateUser: DatabaseService.updateUser,
   updateUserPassword: DatabaseService.updateUserPassword,
+
+  // Role Permissions
+  getAllRolePermissions: DatabaseService.getAllRolePermissions,
+  getRolePermissions: DatabaseService.getRolePermissions,
+  setRolePermission: DatabaseService.setRolePermission,
 
   // Members (with camelCase conversion)
   getAllMembers: async (): Promise<LegacyMember[]> => {
@@ -2908,6 +2971,7 @@ export const db = {
   // Settings
   getSetting: DatabaseService.getSetting,
   setSetting: DatabaseService.setSetting,
+  getWhatsAppTemplate: DatabaseService.getWhatsAppTemplate,
   updateWhatsAppTemplate: DatabaseService.updateWhatsAppTemplate,
   createWhatsAppMessage: DatabaseService.createWhatsAppMessage,
 

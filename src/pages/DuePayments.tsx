@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { CreditCard, Users, IndianRupee, Receipt, RefreshCw, Search, Filter } from 'lucide-react';
+import { CreditCard, Users, IndianRupee, Receipt, RefreshCw, Search, Filter, MessageSquare } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { SidebarTrigger, useSidebar } from '@/components/ui/sidebar';
 import { Button } from '@/components/ui/button';
@@ -229,9 +229,9 @@ export const DuePayments: React.FC = () => {
   };
 
   return (
-    <div className="animate-fade-in w-full overflow-hidden h-full flex flex-col">
-      {/* Header */}
-      <div className="sticky top-0 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b px-6 py-4 w-full overflow-hidden flex-shrink-0">
+    <div className="animate-fade-in w-full h-full flex flex-col overflow-hidden">
+      {/* Fixed Header */}
+      <div className="flex-shrink-0 border-b bg-background px-6 py-4">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
             {sidebarState === 'collapsed' && <SidebarTrigger />}
@@ -347,18 +347,19 @@ export const DuePayments: React.FC = () => {
         </div>
       </div>
 
-      {/* Main Content - Members Table */}
-      <div className="flex-1 overflow-auto p-6">
+      {/* Scrollable Content Area */}
+      <div className="flex-1 overflow-y-auto p-6">
         <Card>
           <CardHeader>
             <CardTitle>Members Due Amounts ({filteredMembers.length})</CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="p-0">
             {loading ? (
               <div className="flex justify-center py-8">
                 <RefreshCw className="h-6 w-6 animate-spin" />
               </div>
             ) : (
+              <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -437,26 +438,67 @@ export const DuePayments: React.FC = () => {
                         )}
                       </TableCell>
                       <TableCell>
-                        <div className="flex gap-2">
+                        <div className="flex gap-2 items-center">
                           {member.dueAmount > 0 && (
-                            <Button 
-                              size="sm" 
-                              variant="outline"
-                              onClick={() => handlePayDue(member)}
-                            >
-                              <CreditCard className="h-4 w-4 mr-1" />
-                              Pay ₹{member.dueAmount.toLocaleString()}
-                            </Button>
+                            <>
+                              <Button 
+                                size="sm" 
+                                variant="outline"
+                                onClick={() => handlePayDue(member)}
+                                className="whitespace-nowrap"
+                              >
+                                <CreditCard className="h-4 w-4 mr-1" />
+                                Pay ₹{member.dueAmount.toLocaleString()}
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={async () => {
+                                  try {
+                                    // Load due amount template from WhatsApp settings
+                                    const gymName = await db.getSetting('gym_name') || 'Prime Fitness Health Point';
+                                    const template = await db.getWhatsAppTemplate('due_amount_reminder') || 
+                                      'Hi {member_name}, your outstanding balance is ₹{due_amount}. Please clear it at your convenience to avoid service interruption. Thanks! 🙏';
+                                    
+                                    // Replace placeholders with actual data
+                                    const message = template
+                                      .replace(/{member_name}/g, member.name)
+                                      .replace(/{due_amount}/g, member.dueAmount.toFixed(2))
+                                      .replace(/{gym_name}/g, gymName)
+                                      .replace(/{member_phone}/g, member.mobileNo || '')
+                                      .replace(/{member_id}/g, member.customMemberId || '');
+
+                                    // Open WhatsApp with pre-filled message
+                                    const phone = member.mobileNo.replace(/\D/g, '');
+                                    const whatsappUrl = `https://wa.me/91${phone}?text=${encodeURIComponent(message)}`;
+                                    window.open(whatsappUrl, '_blank');
+                                    
+                                    toast({
+                                      title: "WhatsApp Opened",
+                                      description: `Opening WhatsApp chat with ${member.name}`,
+                                    });
+                                  } catch (error) {
+                                    console.error('Error opening WhatsApp:', error);
+                                    toast({
+                                      title: "Error",
+                                      description: "Failed to open WhatsApp.",
+                                      variant: "destructive",
+                                    });
+                                  }
+                                }}
+                                title="Send Due Reminder via WhatsApp"
+                              >
+                                <MessageSquare className="h-4 w-4" />
+                              </Button>
+                            </>
                           )}
-                          <Button size="sm" variant="ghost">
-                            View Details
-                          </Button>
                         </div>
                       </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
               </Table>
+              </div>
             )}
             
             {!loading && filteredMembers.length === 0 && (

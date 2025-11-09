@@ -408,6 +408,7 @@ export const Dashboard: React.FC = () => {
   const [members, setMembers] = useState<Member[]>([]);
   const [attendance,setAttendance]=useState<Attendance[]>([]);
   const [enquiries, setEnquiries] = useState<Enquiry[]>([]);
+  const [receipts, setReceipts] = useState<ReceiptType[]>([]);
   const [loading, setLoading] = useState(true);
   const [isReceiptHistoryOpen, setIsReceiptHistoryOpen] = useState(false);
   const [isMemberExpiryOpen, setIsMemberExpiryOpen] = useState(false);
@@ -420,24 +421,45 @@ export const Dashboard: React.FC = () => {
       //Todo
       try {
         setLoading(true);
-        const [membersData, enquiriesData,attendanceData] = await Promise.all([
+        const [membersData, enquiriesData, attendanceData, receiptsData] = await Promise.all([
           db.getAllMembers(),
           db.getAllEnquiries(),
-          db.getAllAttendance()
+          db.getAllAttendance(),
+          db.getAllReceipts()
         ]);
         setAttendance(attendanceData)
         setMembers(membersData || []);
         setEnquiries(enquiriesData || []);
+        setReceipts(receiptsData || []);
       } catch (error) {
         console.error('Error loading dashboard data:', error);
         setMembers([]);
         setEnquiries([]);
+        setReceipts([]);
       } finally {
         setLoading(false);
       }
     };
 
     loadData();
+
+    // Listen for receipt events to refresh data
+    const handleReceiptUpdate = () => {
+      console.log('Receipt update event received, refreshing dashboard...');
+      setTimeout(() => {
+        loadData();
+      }, 300);
+    };
+
+    window.addEventListener('receiptCreated', handleReceiptUpdate);
+    window.addEventListener('receiptUpdated', handleReceiptUpdate);
+    window.addEventListener('receiptDeleted', handleReceiptUpdate);
+
+    return () => {
+      window.removeEventListener('receiptCreated', handleReceiptUpdate);
+      window.removeEventListener('receiptUpdated', handleReceiptUpdate);
+      window.removeEventListener('receiptDeleted', handleReceiptUpdate);
+    };
   }, []);
 
   const stats = useMemo(() => {
@@ -446,6 +468,9 @@ export const Dashboard: React.FC = () => {
         totalMembers: 0,
         activeMembers: 0,
         monthlyRevenue: 0,
+        previousMonthRevenue: 0,
+        revenueTrend: null as string | null,
+        revenueTrendUp: true,
         todayAttendance: 0,
         newEnquiries: 0,
         expiringMembers: 0,
@@ -456,11 +481,64 @@ export const Dashboard: React.FC = () => {
     const activeMembers = members.filter(m => m.status === 'active').length;
     const totalMembers = members.length;
     
-    // Calculate this month's revenue (placeholder - we'll need receipts data)
-    const monthlyRevenue = 0; // TODO: Implement when receipts are available
+    // Calculate this month's revenue from receipts
+    const now = new Date();
+    const currentMonth = now.getMonth();
+    const currentYear = now.getFullYear();
     
-    // Today's attendance (placeholder - we'll need attendance data)
-    const todayAttendance = attendance.length; // TODO: Implement when attendance is available
+    const monthlyRevenue = receipts
+      .filter(receipt => {
+        // Filter for member receipts only (exclude staff salary receipts)
+        if (receipt.receipt_category === 'staff_salary') return false;
+        
+        const receiptDate = new Date(receipt.payment_date || receipt.created_at);
+        return receiptDate.getMonth() === currentMonth && 
+               receiptDate.getFullYear() === currentYear;
+      })
+      .reduce((sum, receipt) => {
+        // Use amount_paid_now for the actual payment amount
+        const amount = receipt.amount_paid_now || receipt.amount_paid || 0;
+        return sum + amount;
+      }, 0);
+
+    // Calculate previous month's revenue for comparison
+    const previousMonth = currentMonth === 0 ? 11 : currentMonth - 1;
+    const previousMonthYear = currentMonth === 0 ? currentYear - 1 : currentYear;
+    
+    const previousMonthRevenue = receipts
+      .filter(receipt => {
+        if (receipt.receipt_category === 'staff_salary') return false;
+        
+        const receiptDate = new Date(receipt.payment_date || receipt.created_at);
+        return receiptDate.getMonth() === previousMonth && 
+               receiptDate.getFullYear() === previousMonthYear;
+      })
+      .reduce((sum, receipt) => {
+        const amount = receipt.amount_paid_now || receipt.amount_paid || 0;
+        return sum + amount;
+      }, 0);
+
+    // Calculate revenue trend
+    let revenueTrend: string | null = null;
+    let revenueTrendUp = true;
+    
+    if (previousMonthRevenue > 0) {
+      const percentageChange = ((monthlyRevenue - previousMonthRevenue) / previousMonthRevenue) * 100;
+      revenueTrendUp = percentageChange >= 0;
+      revenueTrend = `${percentageChange >= 0 ? '+' : ''}${percentageChange.toFixed(1)}%`;
+    } else if (monthlyRevenue > 0) {
+      revenueTrend = 'New revenue';
+      revenueTrendUp = true;
+    }
+    
+    // Today's attendance
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayAttendance = attendance.filter(a => {
+      const attendanceDate = new Date(a.check_in_time);
+      attendanceDate.setHours(0, 0, 0, 0);
+      return attendanceDate.getTime() === today.getTime();
+    }).length;
 
     // New enquiries this week
     const weekAgo = new Date();
@@ -470,7 +548,6 @@ export const Dashboard: React.FC = () => {
     ).length;
 
     // Calculate expiring and expired members
-    const today = new Date();
     const thirtyDaysFromNow = new Date();
     thirtyDaysFromNow.setDate(today.getDate() + 30);
 
@@ -490,12 +567,15 @@ export const Dashboard: React.FC = () => {
       totalMembers,
       activeMembers,
       monthlyRevenue,
+      previousMonthRevenue,
+      revenueTrend,
+      revenueTrendUp,
       todayAttendance,
       newEnquiries,
       expiringMembers,
       expiredMembers
     };
-  }, [members, enquiries, attendance, loading]);
+  }, [members, enquiries, attendance, receipts, loading]);
 
   const recentActivities = useMemo(() => {
     if (loading) return [];
@@ -544,22 +624,25 @@ export const Dashboard: React.FC = () => {
   }
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="animate-fade-in">
       {/* Header */}
-      <div className="flex items-center gap-3">
-        {sidebarState === 'collapsed' && <SidebarTrigger />}
-        <div>
-          <h1 className="text-3xl font-bold bg-gradient-to-r from-gym-primary to-primary-glow bg-clip-text text-transparent">
-            Dashboard
-          </h1>
-          <p className="text-muted-foreground">
-            Welcome back! Here's what's happening at your gym today.
-          </p>
+      <div className="sticky top-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b px-6 py-4">
+        <div className="flex items-center gap-3">
+          {sidebarState === 'collapsed' && <SidebarTrigger />}
+          <div>
+            <h1 className="text-3xl font-bold bg-gradient-to-r from-gym-primary to-primary-glow bg-clip-text text-transparent">
+              Dashboard
+            </h1>
+            <p className="text-muted-foreground">
+              Welcome back! Here's what's happening at your gym today.
+            </p>
+          </div>
         </div>
       </div>
 
-      {/* Stats Grid */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="p-6 space-y-6">
+        {/* Stats Grid */}
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <StatsCard
           title="Total Members"
           value={stats.totalMembers}
@@ -571,8 +654,8 @@ export const Dashboard: React.FC = () => {
           value={`₹${stats.monthlyRevenue.toLocaleString()}`}
           description="This month's earnings"
           icon={DollarSign}
-          trend="+12.5%"
-          trendUp={true}
+          trend={stats.revenueTrend || undefined}
+          trendUp={stats.revenueTrendUp}
         />
         <StatsCard
           title="Today's Attendance"
@@ -929,6 +1012,7 @@ export const Dashboard: React.FC = () => {
         onClose={() => setIsMemberExpiryOpen(false)}
         initialTab={memberExpiryTab}
       />
+      </div>
     </div>
   );
 };

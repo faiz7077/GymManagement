@@ -14,7 +14,8 @@ import {
   Download,
   UserCheck,
   FolderOpen,
-  Printer
+  Printer,
+  MessageSquare
 } from 'lucide-react';
 import { format, isValid } from 'date-fns';
 import { Receipt, db } from '@/utils/database';
@@ -52,7 +53,9 @@ export const ReceiptDetails: React.FC<ReceiptDetailsProps> = ({ receipt, isOpen,
   const loadReceiptHistory = async (memberId: string) => {
     setIsLoadingHistory(true);
     try {
-      const history = await db.getMemberReceiptHistory(memberId);
+      console.log('Loading receipt history for member:', memberId);
+      const history = await db.getReceiptsByMemberId(memberId);
+      console.log('Receipt history loaded:', history.length, 'receipts');
       setReceiptHistory(history);
     } catch (error) {
       console.error('Error loading receipt history:', error);
@@ -382,17 +385,62 @@ export const ReceiptDetails: React.FC<ReceiptDetailsProps> = ({ receipt, isOpen,
                 <Download className="h-4 w-4" />
                 <span>{isDownloading ? 'Downloading...' : 'Download PDF'}</span>
               </Button>
-
-              {/* Will be implemented when needed */}
-              {/* <Button
+              
+              <Button
                 variant="outline"
                 size="sm"
-                onClick={handlePrintReceipt}
+                onClick={async () => {
+                  if (!receipt.mobile_no) {
+                    toast({
+                      title: "No Phone Number",
+                      description: "This receipt doesn't have a phone number associated.",
+                      variant: "destructive",
+                    });
+                    return;
+                  }
+                  
+                  try {
+                    // Load receipt template from settings
+                    const gymName = await db.getSetting('gym_name') || 'Prime Fitness Health Point';
+                    const template = await db.getSetting('whatsapp_receipt_template') || 
+                      'Hi {member_name}, we\'ve received ₹{amount_paid}. Receipt #{receipt_number} is attached. Thank you for choosing {gym_name}! 🎉';
+                    
+                    // Replace placeholders with actual data
+                    const message = template
+                      .replace(/{member_name}/g, receipt.member_name)
+                      .replace(/{amount_paid}/g, (receipt.amount_paid || receipt.amount).toFixed(2))
+                      .replace(/{receipt_number}/g, receipt.receipt_number)
+                      .replace(/{gym_name}/g, gymName)
+                      .replace(/{member_phone}/g, receipt.mobile_no || '')
+                      .replace(/{member_id}/g, receipt.custom_member_id || '')
+                      .replace(/{due_amount}/g, (receipt.due_amount || 0).toFixed(2))
+                      .replace(/{start_date}/g, receipt.subscription_start_date || '')
+                      .replace(/{end_date}/g, receipt.subscription_end_date || '')
+                      .replace(/{plan_type}/g, receipt.plan_type || '');
+
+                    // Open WhatsApp with pre-filled message
+                    const phone = receipt.mobile_no.replace(/\D/g, '');
+                    const whatsappUrl = `https://wa.me/91${phone}?text=${encodeURIComponent(message)}`;
+                    window.open(whatsappUrl, '_blank');
+                    
+                    toast({
+                      title: "WhatsApp Opened",
+                      description: `Opening WhatsApp chat with ${receipt.member_name}`,
+                    });
+                  } catch (error) {
+                    console.error('Error opening WhatsApp:', error);
+                    toast({
+                      title: "Error",
+                      description: "Failed to open WhatsApp.",
+                      variant: "destructive",
+                    });
+                  }
+                }}
                 className="flex items-center space-x-2"
               >
-                <Printer className="h-4 w-4" />
-                <span>Print</span>
-              </Button> */}
+                <MessageSquare className="h-4 w-4" />
+                <span>Send via WhatsApp</span>
+              </Button>
             </div>
           </DialogTitle>
         </DialogHeader>
@@ -717,15 +765,15 @@ export const ReceiptDetails: React.FC<ReceiptDetailsProps> = ({ receipt, isOpen,
                             : 'bg-muted/30 border-muted'
                         }`}
                       >
-                        <div className="flex items-center space-x-3">
+                        <div className="flex items-center space-x-3 flex-1">
                           <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${
                             historyReceipt.id === receipt.id 
                               ? 'bg-primary text-primary-foreground' 
                               : 'bg-muted-foreground text-white'
                           }`}>
-                            {historyReceipt.receipt_number}
+                            {index + 1}
                           </div>
-                          <div>
+                          <div className="flex-1">
                             <p className="text-sm font-medium">
                               {historyReceipt.id === receipt.id ? 'Current Receipt' : `Receipt #${historyReceipt.receipt_number}`}
                             </p>
@@ -734,12 +782,40 @@ export const ReceiptDetails: React.FC<ReceiptDetailsProps> = ({ receipt, isOpen,
                             </p>
                           </div>
                         </div>
-                        <div className="text-right">
-                          <p className="text-sm font-bold">₹{historyReceipt.amount.toFixed(2)}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {historyReceipt.description?.includes('New Membership') ? 'New' : 
-                             historyReceipt.description?.includes('Renewal') ? 'Renewal' : 'Payment'}
-                          </p>
+                        <div className="flex items-center space-x-3">
+                          <div className="text-right">
+                            <p className="text-sm font-bold">₹{(historyReceipt.amount_paid || historyReceipt.amount).toFixed(2)}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {historyReceipt.description?.includes('New') ? 'New' : 
+                               historyReceipt.description?.includes('Renewal') ? 'Renewal' : 
+                               historyReceipt.description?.includes('update') ? 'Update' : 'Payment'}
+                            </p>
+                          </div>
+                          <div className="flex items-center space-x-1">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={async () => {
+                                try {
+                                  await ReceiptPDFGenerator.downloadReceiptPDF(historyReceipt);
+                                  toast({
+                                    title: "PDF Downloaded",
+                                    description: `Receipt ${historyReceipt.receipt_number} downloaded successfully.`,
+                                  });
+                                } catch (error) {
+                                  console.error('Error downloading receipt:', error);
+                                  toast({
+                                    title: "Download Failed",
+                                    description: "Failed to download receipt PDF.",
+                                    variant: "destructive",
+                                  });
+                                }
+                              }}
+                              className="h-8 w-8 p-0"
+                            >
+                              <Download className="h-4 w-4" />
+                            </Button>
+                          </div>
                         </div>
                       </div>
                     ))

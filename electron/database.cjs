@@ -19,7 +19,7 @@ class DatabaseService {
         fs.mkdirSync(dbDir, { recursive: true });
       }
 
-      const dbPath = path.join(dbDir, 'faizanGym.db');
+      const dbPath = path.join(dbDir, 'pratik.db');
       console.log('Database path:', dbPath);
 
       this.db = new Database(dbPath);
@@ -48,6 +48,19 @@ class DatabaseService {
         phone TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Role permissions table
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS role_permissions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        role TEXT NOT NULL CHECK (role IN ('trainer', 'receptionist')),
+        permission TEXT NOT NULL,
+        enabled INTEGER DEFAULT 1,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(role, permission)
       )
     `);
 
@@ -1173,6 +1186,9 @@ class DatabaseService {
       console.log('Default users initialized');
     }
 
+    // Initialize default role permissions
+    this.initializeDefaultPermissions();
+
     // Initialize default WhatsApp templates
     const templateCount = this.db.prepare('SELECT COUNT(*) as count FROM whatsapp_templates').get();
 
@@ -1296,6 +1312,146 @@ class DatabaseService {
       return result.changes > 0;
     } catch (error) {
       console.error('Update user password error:', error);
+      return false;
+    }
+  }
+
+  updateUser(userId, userData) {
+    try {
+      const updates = [];
+      const values = [];
+
+      if (userData.name !== undefined) {
+        updates.push('name = ?');
+        values.push(userData.name);
+      }
+      if (userData.email !== undefined) {
+        updates.push('email = ?');
+        values.push(userData.email);
+      }
+      if (userData.phone !== undefined) {
+        updates.push('phone = ?');
+        values.push(userData.phone);
+      }
+      if (userData.password !== undefined) {
+        updates.push('password = ?');
+        values.push(userData.password);
+      }
+
+      if (updates.length === 0) {
+        return false;
+      }
+
+      updates.push('updated_at = CURRENT_TIMESTAMP');
+      values.push(userId);
+
+      const stmt = this.db.prepare(`
+        UPDATE users 
+        SET ${updates.join(', ')}
+        WHERE id = ?
+      `);
+
+      const result = stmt.run(...values);
+      return result.changes > 0;
+    } catch (error) {
+      console.error('Update user error:', error);
+      return false;
+    }
+  }
+
+  // Role permissions operations
+  getRolePermissions(role) {
+    try {
+      return this.db.prepare('SELECT * FROM role_permissions WHERE role = ?').all(role);
+    } catch (error) {
+      console.error('Get role permissions error:', error);
+      return [];
+    }
+  }
+
+  getAllRolePermissions() {
+    try {
+      return this.db.prepare('SELECT * FROM role_permissions ORDER BY role, permission').all();
+    } catch (error) {
+      console.error('Get all role permissions error:', error);
+      return [];
+    }
+  }
+
+  setRolePermission(role, permission, enabled) {
+    try {
+      const stmt = this.db.prepare(`
+        INSERT INTO role_permissions (role, permission, enabled, updated_at)
+        VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(role, permission) 
+        DO UPDATE SET enabled = ?, updated_at = CURRENT_TIMESTAMP
+      `);
+      
+      const result = stmt.run(role, permission, enabled ? 1 : 0, enabled ? 1 : 0);
+      return result.changes > 0;
+    } catch (error) {
+      console.error('Set role permission error:', error);
+      return false;
+    }
+  }
+
+  initializeDefaultPermissions() {
+    try {
+      // Default permissions for trainer
+      const trainerPermissions = [
+        'VIEW_MEMBERS',
+        'VIEW_ATTENDANCE',
+        'VIEW_MEASUREMENTS',
+        'ADD_MEASUREMENTS',
+        'MANAGE_STAFF',
+        'VIEW_RECEIPTS',
+        'VIEW_REPORTS',
+        'MANAGE_SALARIES'
+      ];
+
+      // Default permissions for receptionist
+      const receptionistPermissions = [
+        'VIEW_MEMBERS',
+        'ADD_MEMBER',
+        'EDIT_MEMBER',
+        'VIEW_ATTENDANCE',
+        'MARK_ATTENDANCE',
+        'MANAGE_STAFF',
+        'VIEW_RECEIPTS',
+        'CREATE_RECEIPTS',
+        'MANAGE_RECEIPTS',
+        'VIEW_ENQUIRIES',
+        'MANAGE_ENQUIRIES'
+      ];
+
+      // Check if permissions already exist
+      const existing = this.db.prepare('SELECT COUNT(*) as count FROM role_permissions').get();
+      
+      if (existing.count === 0) {
+        // Insert default permissions
+        const stmt = this.db.prepare(`
+          INSERT INTO role_permissions (role, permission, enabled)
+          VALUES (?, ?, 1)
+        `);
+
+        const insertMany = this.db.transaction((permissions) => {
+          for (const perm of permissions) {
+            stmt.run(perm.role, perm.permission);
+          }
+        });
+
+        const allPermissions = [
+          ...trainerPermissions.map(p => ({ role: 'trainer', permission: p })),
+          ...receptionistPermissions.map(p => ({ role: 'receptionist', permission: p }))
+        ];
+
+        insertMany(allPermissions);
+        console.log('Default role permissions initialized');
+      }
+
+      return true;
+    } catch (error) {
+      console.error('Initialize default permissions error:', error);
       return false;
     }
   }
@@ -1627,14 +1783,15 @@ class DatabaseService {
         }
       }
 
-      // Note: Receipt generation for member updates is handled by the frontend
-      // through the createPlanUpdateReceipt function to avoid duplicates and
+      // Note: Receipt generation and updates for member changes are handled by the frontend
+      // through the createMembershipReceipt function to avoid duplicates and
       // ensure proper due amount calculation with the complete fee structure.
+      // The handleMemberPaymentUpdate function is no longer called here to prevent
+      // conflicts with frontend receipt management.
 
-      // Handle payment amount changes properly
+      // Payment amount changes and receipt updates are now handled by frontend
       if (result.changes > 0 && paidAmountChanged) {
-        console.log('💰 Payment amount changed, updating receipts and due amounts...');
-        this.handleMemberPaymentUpdate(stringId, currentPaidAmount, newPaidAmount);
+        console.log('💰 Payment amount changed. Receipt creation/update handled by frontend.');
       }
 
       // Recalculate member totals if fee structure changed
@@ -2623,37 +2780,11 @@ class DatabaseService {
       `).all(memberId);
 
       if (receipts.length === 0) {
-        console.log('No receipts found for member, creating initial receipt');
-        // Create a receipt for the payment
-        const receiptData = {
-          id: this.generateId(),
-          receipt_number: this.generateReceiptNumber(),
-          member_id: memberId,
-          member_name: member.name,
-          amount: totalExpected,
-          amount_paid: newPaidAmount,
-          due_amount: Math.max(0, totalExpected - newPaidAmount),
-          payment_type: member.payment_mode || 'cash',
-          description: `Payment update - ${member.name}`,
-          receipt_category: 'member',
-          transaction_type: newPaidAmount >= totalExpected ? 'payment' : 'partial_payment',
-          custom_member_id: member.custom_member_id,
-          subscription_start_date: member.subscription_start_date,
-          subscription_end_date: member.subscription_end_date,
-          plan_type: member.plan_type,
-          payment_mode: member.payment_mode,
-          mobile_no: member.mobile_no,
-          email: member.email,
-          package_fee: packageFee,
-          registration_fee: registrationFee,
-          discount: discount,
-          cgst: 0,
-          sigst: 0,
-          created_at: new Date().toISOString(),
-          created_by: 'System'
-        };
-
-        return this.createReceipt(receiptData);
+        console.log('ℹ️ No receipts found for member. Receipt creation is handled by frontend to prevent duplicates.');
+        // NOTE: Receipt creation is now handled by the frontend (Members.tsx)
+        // to prevent duplicate receipts and ensure proper transaction tracking.
+        // The frontend calls createMembershipReceipt when payment amounts change.
+        return true;
       }
 
       // Simple approach: Update the most recent receipt to reflect the total payment
@@ -3555,6 +3686,53 @@ class DatabaseService {
 
 
   // Staff salary receipt functions
+  // Helper function to get or create the staff salary expense category from master settings
+  getStaffSalaryExpenseCategory() {
+    try {
+      // Try to find "Staff Salary" or "Staff Salaries" category in master settings
+      const categories = this.db.prepare(`
+        SELECT * FROM master_expense_categories 
+        WHERE is_active = 1 
+        AND (LOWER(name) LIKE '%staff%salary%' OR LOWER(name) LIKE '%staff%salaries%')
+        ORDER BY name ASC
+        LIMIT 1
+      `).all();
+      
+      if (categories && categories.length > 0) {
+        // Return the category name in lowercase with spaces replaced by underscores
+        return categories[0].name.toLowerCase().replace(/\s+/g, '_');
+      }
+      
+      // If no staff salary category exists, try to create it automatically
+      console.warn('No "Staff Salary" category found in master settings, attempting to create it...');
+      try {
+        const categoryId = `cat-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        const stmt = this.db.prepare(`
+          INSERT INTO master_expense_categories (id, name, description, is_active, created_at)
+          VALUES (?, ?, ?, ?, ?)
+        `);
+        
+        stmt.run(
+          categoryId,
+          'Staff Salary',
+          'Staff salaries, bonuses, and salary adjustments',
+          1,
+          new Date().toISOString()
+        );
+        
+        console.log('Successfully created "Staff Salary" expense category in master settings');
+        return 'staff_salary';
+      } catch (createError) {
+        console.error('Failed to auto-create Staff Salary category:', createError);
+        // Fallback to 'salaries' if creation fails
+        return 'salaries';
+      }
+    } catch (error) {
+      console.error('Error getting staff salary expense category:', error);
+      return 'salaries'; // Fallback
+    }
+  }
+
   createStaffSalaryReceipt(staffId, staffName, amount, paymentType, description, createdBy) {
     try {
       const receiptData = {
@@ -3571,6 +3749,31 @@ class DatabaseService {
       };
 
       const result = this.createReceipt(receiptData);
+      
+      // Automatically create expense entry for staff salary
+      if (result) {
+        try {
+          // Get the staff salary category from master settings
+          const expenseCategory = this.getStaffSalaryExpenseCategory();
+          
+          const expenseData = {
+            id: this.generateId(),
+            category: expenseCategory,
+            description: `Staff Salary: ${staffName} - ${description || 'Monthly Salary'}`,
+            amount: amount,
+            date: new Date().toISOString().split('T')[0],
+            created_by: createdBy,
+            receipt: result.receipt_number
+          };
+          
+          this.createExpense(expenseData);
+          console.log(`Auto-created expense entry for staff salary with category "${expenseCategory}":`, expenseData.description);
+        } catch (expenseError) {
+          console.error('Failed to auto-create expense for staff salary:', expenseError);
+          // Don't fail the receipt creation if expense creation fails
+        }
+      }
+      
       return result; // This now returns the receipt object or false
     } catch (error) {
       console.error('Create staff salary receipt error:', error);
@@ -3594,6 +3797,31 @@ class DatabaseService {
       };
 
       const result = this.createReceipt(receiptData);
+      
+      // Automatically create expense entry for salary adjustment
+      if (result && (newSalary - oldSalary) !== 0) {
+        try {
+          // Get the staff salary category from master settings
+          const expenseCategory = this.getStaffSalaryExpenseCategory();
+          const adjustmentAmount = newSalary - oldSalary;
+          
+          const expenseData = {
+            id: this.generateId(),
+            category: expenseCategory,
+            description: `Salary Adjustment: ${staffName} (${oldSalary} → ${newSalary})`,
+            amount: Math.abs(adjustmentAmount),
+            date: new Date().toISOString().split('T')[0],
+            created_by: createdBy,
+            receipt: result.receipt_number
+          };
+          
+          this.createExpense(expenseData);
+          console.log(`Auto-created expense entry for salary adjustment with category "${expenseCategory}":`, expenseData.description);
+        } catch (expenseError) {
+          console.error('Failed to auto-create expense for salary adjustment:', expenseError);
+        }
+      }
+      
       return result; // This now returns the receipt object or false
     } catch (error) {
       console.error('Create salary update receipt error:', error);
@@ -3617,6 +3845,30 @@ class DatabaseService {
       };
 
       const result = this.createReceipt(receiptData);
+      
+      // Automatically create expense entry for staff bonus
+      if (result) {
+        try {
+          // Get the staff salary category from master settings
+          const expenseCategory = this.getStaffSalaryExpenseCategory();
+          
+          const expenseData = {
+            id: this.generateId(),
+            category: expenseCategory,
+            description: `Staff Bonus: ${staffName} - ${description || 'Performance Bonus'}`,
+            amount: bonusAmount,
+            date: new Date().toISOString().split('T')[0],
+            created_by: createdBy,
+            receipt: result.receipt_number
+          };
+          
+          this.createExpense(expenseData);
+          console.log(`Auto-created expense entry for staff bonus with category "${expenseCategory}":`, expenseData.description);
+        } catch (expenseError) {
+          console.error('Failed to auto-create expense for staff bonus:', expenseError);
+        }
+      }
+      
       return result; // This now returns the receipt object or false
     } catch (error) {
       console.error('Create bonus receipt error:', error);
@@ -5127,6 +5379,21 @@ class DatabaseService {
     }
   }
 
+  getWhatsAppTemplate(messageType) {
+    try {
+      const stmt = this.db.prepare(`
+        SELECT template_content FROM whatsapp_templates
+        WHERE message_type = ?
+      `);
+
+      const result = stmt.get(messageType);
+      return result ? result.template_content : null;
+    } catch (error) {
+      console.error('Get WhatsApp template error:', error);
+      return null;
+    }
+  }
+
   updateWhatsAppTemplate(messageType, templateContent) {
     try {
       const stmt = this.db.prepare(`
@@ -5225,7 +5492,8 @@ class DatabaseService {
   getAllPackages() {
     try {
       const packages = this.db.prepare('SELECT * FROM master_packages WHERE is_active = 1 ORDER BY duration_months ASC').all();
-      console.log('📦 Retrieved packages:', packages.map(p => ({ id: p.id, name: p.name, idType: typeof p.id })));
+      console.log('📦 Retrieved packages (summary):', packages.map(p => ({ id: p.id, name: p.name, idType: typeof p.id })));
+      console.log('📦 Full package data:', JSON.stringify(packages, null, 2));
       return packages;
     } catch (error) {
       console.error('Get all packages error:', error);

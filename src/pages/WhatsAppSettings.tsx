@@ -50,11 +50,25 @@ export const WhatsAppSettings: React.FC = () => {
       const gymName = await db.getSetting('gym_name') || 'Prime Fitness Health Point';
       const enabled = (await db.getSetting('whatsapp_enabled')) === 'true';
       
+      // Load message templates
+      const welcomeTemplate = await db.getWhatsAppTemplate('welcome_message') || 'Dear {member_name}, Please Submit your Photo, Copy of ID in GYM. If You\'ve already submitted documents ignore this message. Team: {gym_name} 📋';
+      const receiptTemplate = await db.getWhatsAppTemplate('receipt_created') || 'Hi {member_name}, we\'ve received ₹{amount_paid}. Receipt #{receipt_number} is attached. Thank you for choosing {gym_name}! 🎉';
+      const birthdayTemplate = await db.getWhatsAppTemplate('birthday_wish') || 'Dear {member_name}, Wish you a very Happy Birthday. May all your dreams come true. Team: {gym_name} 🎉';
+      const expiryTemplate = await db.getWhatsAppTemplate('membership_expiring') || 'Hi {member_name}, your membership ends in {days} day(s) on {end_date}. Renew now to keep smashing your goals! ⚠️';
+      const attendanceTemplate = await db.getWhatsAppTemplate('attendance_reminder') || 'Hi {member_name}, we missed you at the gym lately. Let\'s get back on track together—see you soon? 💪';
+      const dueAmountTemplate = await db.getWhatsAppTemplate('due_amount_reminder') || 'Hi {member_name}, your outstanding balance is ₹{due_amount}. Please clear it at your convenience to avoid service interruption. Thanks! 🙏';
+      
       setSettings(prev => ({
         ...prev,
         adminPhone,
         gymName,
-        enabled
+        enabled,
+        welcomeTemplate,
+        receiptTemplate,
+        birthdayTemplate,
+        expiryTemplate,
+        attendanceTemplate,
+        dueAmountTemplate
       }));
     } catch (error) {
       console.error('Error loading WhatsApp settings:', error);
